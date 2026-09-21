@@ -1,0 +1,53 @@
+@page
+@model LEDbyDan.Pages.IndexModel
+@{
+    ViewData["Title"] = "Vacations";
+}
+
+<div class="container py-4">
+    <h1 class="mb-4">Our Vacations</h1>
+
+    @if (Model.Vacations.Count == 0)
+    {
+        <div class="alert alert-info">
+            <p class="mb-2"><strong>No vacations found yet.</strong></p>
+            <p class="mb-0">
+                Add a new vacation by creating a subfolder full of photos (and videos) inside the
+                configured media folder. Each subfolder automatically becomes a vacation here -
+                no code changes or app restart required.
+            </p>
+        </div>
+    }
+    else
+    {
+        <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
+            @foreach (var vacation in Model.Vacations)
+            {
+                <div class="col">
+                    <a class="vacation-card" href="/slideshow/@vacation.Id">
+                        <div class="vacation-card__image">
+                            @if (vacation.CoverImageUrl is not null)
+                            {
+                                <img src="@vacation.CoverImageUrl" alt="" loading="lazy" />
+                            }
+                            else
+                            {
+                                <div class="vacation-card__placeholder" aria-hidden="true">&#128247;</div>
+                            }
+                        </div>
+                        <div class="vacation-card__body">
+                            <div class="vacation-card__title">@vacation.Title</div>
+                            <div class="vacation-card__meta">
+                                @vacation.ItemCount item@(vacation.ItemCount == 1 ? "" : "s")
+                                @if (vacation.Date is not null)
+                                {
+                                    <span>&middot; @vacation.Date.Value.ToString("MMMM yyyy")</span>
+                                }
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            }
+        </div>
+    }
+</div>

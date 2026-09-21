@@ -1,0 +1,208 @@
+:root {
+    --brand-dark: #14213d;
+    --brand-accent: #fca311;
+}
+
+html, body {
+    height: 100%;
+}
+
+body {
+    background-color: #f5f6f8;
+}
+
+/* ---------- Home page header ---------- */
+
+.app-header {
+    background-color: var(--brand-dark);
+    padding: 0.9rem 1.25rem;
+}
+
+.app-header__brand {
+    color: #fff;
+    font-weight: 600;
+    font-size: 1.25rem;
+    text-decoration: none;
+}
+
+/* ---------- Vacation grid cards ---------- */
+
+.vacation-card {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    background: #fff;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    height: 100%;
+}
+
+.vacation-card:hover,
+.vacation-card:focus-visible {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+}
+
+.vacation-card__image {
+    aspect-ratio: 4 / 3;
+    background-color: #e9ecef;
+    overflow: hidden;
+}
+
+.vacation-card__image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.vacation-card__placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    color: #adb5bd;
+}
+
+.vacation-card__body {
+    padding: 0.85rem 1rem;
+}
+
+.vacation-card__title {
+    font-weight: 600;
+    margin-bottom: 0.15rem;
+}
+
+.vacation-card__meta {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+/* ---------- Slideshow page ---------- */
+
+.slideshow-body {
+    background-color: #000;
+    margin: 0;
+    overscroll-behavior: none;
+}
+
+.slideshow {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    color: #fff;
+}
+
+.slideshow__topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    background: rgba(0, 0, 0, 0.55);
+    flex: 0 0 auto;
+}
+
+.slideshow__back {
+    color: #fff;
+    text-decoration: none;
+    font-size: 0.95rem;
+    white-space: nowrap;
+}
+
+.slideshow__title {
+    flex: 1 1 auto;
+    text-align: center;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 0.5rem;
+}
+
+.slideshow__icon-btn {
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 1.3rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+}
+
+.slideshow__stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    touch-action: pan-y;
+}
+
+.slideshow__media {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.slideshow__media img,
+.slideshow__media video {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.slideshow__nav {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 3.5rem;
+    max-width: 20%;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 1.75rem;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.slideshow__nav:hover,
+.slideshow__nav:focus-visible {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.slideshow__nav--prev {
+    left: 0;
+}
+
+.slideshow__nav--next {
+    right: 0;
+}
+
+.slideshow__bottombar {
+    flex: 0 0 auto;
+    text-align: center;
+    padding: 0.6rem;
+    background: rgba(0, 0, 0, 0.55);
+    font-size: 0.9rem;
+    letter-spacing: 0.02em;
+}
+
+/* Touch devices: keep nav buttons reasonably sized without dominating the photo */
+@media (max-width: 576px) {
+    .slideshow__nav {
+        width: 3rem;
+        font-size: 1.4rem;
+    }
+
+    .slideshow__title {
+        font-size: 0.9rem;
+    }
+}

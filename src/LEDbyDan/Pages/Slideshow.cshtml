@@ -1,0 +1,27 @@
+@page "{id}"
+@model LEDbyDan.Pages.SlideshowModel
+@{
+    ViewData["Title"] = Model.Vacation.Title;
+    Layout = "_SlideshowLayout";
+}
+
+<div class="slideshow" id="slideshow" data-start-index="@Context.Request.Query["i"]">
+    <div class="slideshow__topbar">
+        <a class="slideshow__back" href="/">&larr; Vacations</a>
+        <div class="slideshow__title">@Model.Vacation.Title</div>
+        <button type="button" class="slideshow__icon-btn" id="fullscreenBtn" title="Fullscreen" aria-label="Toggle fullscreen">&#x26F6;</button>
+    </div>
+
+    <div class="slideshow__stage" id="stage">
+        <button type="button" class="slideshow__nav slideshow__nav--prev" id="prevBtn" aria-label="Previous">&#10094;</button>
+        <div class="slideshow__media" id="mediaContainer"></div>
+        <button type="button" class="slideshow__nav slideshow__nav--next" id="nextBtn" aria-label="Next">&#10095;</button>
+    </div>
+
+    <div class="slideshow__bottombar">
+        <span id="counter">1 / @Model.Vacation.Items.Count</span>
+    </div>
+</div>
+
+<script type="application/json" id="media-data">@Html.Raw(Model.ItemsJson)</script>
+<script src="~/js/slideshow.js" asp-append-version="true"></script>
