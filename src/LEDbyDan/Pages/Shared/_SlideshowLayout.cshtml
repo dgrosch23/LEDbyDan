@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>@(ViewData["Title"] is string t && !string.IsNullOrWhiteSpace(t) ? $"{t} - Vacation Slideshows" : "Vacation Slideshows")</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body class="slideshow-body">
+    @RenderBody()
+</body>
+</html>

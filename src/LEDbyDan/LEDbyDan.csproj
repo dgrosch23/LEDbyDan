@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>LEDbyDan</RootNamespace>
+    <UserSecretsId>ledbydan-vacation-slideshow</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Sample media used only for local development (see appsettings.Development.json). -->
+    <None Update="SampleVacations/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

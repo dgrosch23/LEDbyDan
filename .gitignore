@@ -4,6 +4,14 @@ bin-release/
 [Oo]bj/
 [Bb]in/
 
+# Visual Studio / .NET
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+appsettings.*.local.json
+
 # Other files and folders
 .settings/
 
