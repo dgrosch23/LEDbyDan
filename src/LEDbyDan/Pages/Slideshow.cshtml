@@ -5,7 +5,7 @@
     Layout = "_SlideshowLayout";
 }
 
-<div class="slideshow" id="slideshow" data-start-index="@Context.Request.Query["i"]">
+<div class="slideshow" id="slideshow" data-start-index="@HttpContext.Request.Query["i"]">
     <div class="slideshow__topbar">
         <a class="slideshow__back" href="/">&larr; Vacations</a>
         <div class="slideshow__title">@Model.Vacation.Title</div>
