@@ -70,7 +70,7 @@ class Serializer
    method XmlToDatabase(&xml As string, &recName As string, &mode As string) Returns number;
 
    /* ---- application classes ---- */
-   method Register(&schema As DG_SERIALIZE:Obj:ClassSchema) Returns DG_SERIALIZE:Serializer;
+   method Register(&schema As DG_SERIALIZE:Obj:ClassSchema);
    method ObjectToJson(&obj As object, &classPath As string) Returns string;
    method JsonToObject(&json As string, &classPath As string) Returns object;
    method ObjectToXml(&obj As object, &classPath As string) Returns string;
@@ -226,9 +226,7 @@ end-method;
 
 method Register
    /+ &schema as DG_SERIALIZE:Obj:ClassSchema +/
-   /+ Returns DG_SERIALIZE:Serializer +/
    %This.Classes.Register(&schema);
-   Return %This;
 end-method;
 
 method ObjectToJson
