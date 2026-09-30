@@ -1,0 +1,169 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Xml:XmlWriter
+ *
+ * Renders a DataNode tree as XML using the delivered XmlDoc API.
+ *
+ *    { "emplid":"KU0001", "skills":["SQL","PeopleCode"], "active":true }
+ *
+ * becomes (TypeHints = True, the default):
+ *
+ *    <root dg_type="object">
+ *      <emplid>KU0001</emplid>
+ *      <skills dg_type="array"><item>SQL</item><item>PeopleCode</item></skills>
+ *      <active dg_type="boolean">true</active>
+ *    </root>
+ *
+ * The dg_type attributes let XmlReader restore the exact types (numbers,
+ * booleans, nulls, dates, single-item arrays). Turn TypeHints off to emit
+ * "plain" XML for systems that do not want them.
+ *
+ * Member names that are not legal XML element names (spaces, leading
+ * digits, ...) are written as <entry dg_name="the name">.
+ * ========================================================================= */
+import DG_SERIALIZE:Core:DataNode;
+
+class XmlWriter
+   method XmlWriter();
+
+   property string RootName;
+   property string ItemName;
+   property string EntryName;
+   property string NameAttribute;
+   property string TypeAttribute;
+   property boolean TypeHints;
+   property boolean Pretty;
+
+   method Write(&node As DG_SERIALIZE:Core:DataNode) Returns string;
+   method WriteDoc(&node As DG_SERIALIZE:Core:DataNode) Returns XmlDoc;
+   method WriteInto(&parent As XmlNode, &node As DG_SERIALIZE:Core:DataNode);
+   method IsValidName(&name As string) Returns boolean;
+
+private
+   method Fill(&el As XmlNode, &node As DG_SERIALIZE:Core:DataNode);
+   method Hint(&el As XmlNode, &type As string);
+end-class;
+
+
+method XmlWriter
+   %This.RootName = "root";
+   %This.ItemName = "item";
+   %This.EntryName = "entry";
+   %This.NameAttribute = "dg_name";
+   %This.TypeAttribute = "dg_type";
+   %This.TypeHints = True;
+   %This.Pretty = False;
+end-method;
+
+
+method Write
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   /+ Returns String +/
+   Local XmlDoc &doc = %This.WriteDoc(&node);
+   If %This.Pretty Then
+      Return &doc.GenFormattedXmlString();
+   End-If;
+   Return &doc.GenXmlString();
+end-method;
+
+
+method WriteDoc
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   /+ Returns XmlDoc +/
+   Local XmlDoc &doc = CreateXmlDoc("");
+   Local XmlNode &root = &doc.CreateDocumentElement(%This.RootName);
+   %This.Fill(&root, &node);
+   Return &doc;
+end-method;
+
+
+method WriteInto
+   /+ &parent as XmlNode, +/
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   /* append &node's content under an existing element, e.g. an IB message */
+   %This.Fill(&parent, &node);
+end-method;
+
+
+method Fill
+   /+ &el as XmlNode, +/
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   Local number &i;
+   Local string &key;
+   Local XmlNode &child;
+
+   If &node = Null Then
+      %This.Hint(&el, "null");
+      Return;
+   End-If;
+
+   Evaluate &node.Kind
+   When "OBJECT"
+      %This.Hint(&el, "object");
+      For &i = 1 To &node.Count
+         &key = &node.KeyAt(&i);
+         If %This.IsValidName(&key) Then
+            &child = &el.AddElement(&key);
+         Else
+            &child = &el.AddElement(%This.EntryName);
+            &child.AddAttribute(%This.NameAttribute, &key);
+         End-If;
+         %This.Fill(&child, &node.ValueAt(&i));
+      End-For;
+      Break;
+
+   When "ARRAY"
+      %This.Hint(&el, "array");
+      For &i = 1 To &node.Count
+         &child = &el.AddElement(%This.ItemName);
+         %This.Fill(&child, &node.ValueAt(&i));
+      End-For;
+      Break;
+
+   When "NULL"
+      %This.Hint(&el, "null");
+      Break;
+
+   When-Other
+      /* scalars: STRING needs no hint, it is the reader's default */
+      If &node.Kind <> "STRING" Then
+         %This.Hint(&el, Lower(&node.Kind));
+      End-If;
+      If Len(&node.Text) > 0 Then
+         &el.AddText(&node.Text);
+      End-If;
+   End-Evaluate;
+end-method;
+
+
+method Hint
+   /+ &el as XmlNode, +/
+   /+ &type as String +/
+   If %This.TypeHints Then
+      &el.AddAttribute(%This.TypeAttribute, &type);
+   End-If;
+end-method;
+
+
+method IsValidName
+   /+ &name as String +/
+   /+ Returns Boolean +/
+   Local number &i;
+   Local string &first;
+
+   If Len(&name) = 0 Then
+      Return False;
+   End-If;
+   &first = Upper(Substring(&name, 1, 1));
+   If Find(&first, "ABCDEFGHIJKLMNOPQRSTUVWXYZ_") = 0 Then
+      Return False;
+   End-If;
+   If Upper(Substring(&name, 1, 3)) = "XML" Then
+      Return False;
+   End-If;
+   For &i = 2 To Len(&name)
+      If Find(Upper(Substring(&name, &i, 1)), "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.") = 0 Then
+         Return False;
+      End-If;
+   End-For;
+   Return True;
+end-method;

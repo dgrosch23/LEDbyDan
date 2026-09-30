@@ -1,0 +1,152 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Core:IsoDate
+ *
+ * Locale-independent ISO-8601 formatting/parsing for PeopleCode date,
+ * datetime and time values. (DateValue/String are locale dependent, which
+ * makes them unsafe for interchange formats.)
+ *
+ *    date      <->  "2024-05-01"
+ *    datetime  <->  "2024-05-01T13:45:30"   (also accepts a space separator,
+ *                                            fractional seconds and a zone
+ *                                            suffix; the zone is ignored)
+ *    time      <->  "13:45:30"              (also accepts "13:45")
+ *
+ * Empty input parses to an empty (null) value.
+ * ========================================================================= */
+
+class IsoDate
+   method IsoDate();
+
+   method FormatDate(&d As date) Returns string;
+   method FormatDateTime(&dt As datetime) Returns string;
+   method FormatTime(&t As time) Returns string;
+
+   method ParseDate(&s As string) Returns date;
+   method ParseDateTime(&s As string) Returns datetime;
+   method ParseTime(&s As string) Returns time;
+
+private
+   method Pad(&n As number, &width As number) Returns string;
+   method Num(&s As string, &start As number, &length As number) Returns number;
+end-class;
+
+
+method IsoDate
+end-method;
+
+
+method FormatDate
+   /+ &d as Date +/
+   /+ Returns String +/
+   If None(&d) Then
+      Return "";
+   End-If;
+   Return %This.Pad(Year(&d), 4) | "-" | %This.Pad(Month(&d), 2) | "-" | %This.Pad(Day(&d), 2);
+end-method;
+
+method FormatDateTime
+   /+ &dt as DateTime +/
+   /+ Returns String +/
+   If None(&dt) Then
+      Return "";
+   End-If;
+   Return %This.FormatDate(DatePart(&dt)) | "T" | %This.FormatTime(TimePart(&dt));
+end-method;
+
+method FormatTime
+   /+ &t as Time +/
+   /+ Returns String +/
+   If None(&t) Then
+      Return "";
+   End-If;
+   Return %This.Pad(Hour(&t), 2) | ":" | %This.Pad(Minute(&t), 2) | ":" | %This.Pad(Int(Second(&t)), 2);
+end-method;
+
+
+method ParseDate
+   /+ &s as String +/
+   /+ Returns Date +/
+   Local date &empty;
+   Local string &v = LTrim(RTrim(&s));
+
+   If Len(&v) < 10 Then
+      Return &empty;
+   End-If;
+   Return Date3(%This.Num(&v, 1, 4), %This.Num(&v, 6, 2), %This.Num(&v, 9, 2));
+end-method;
+
+method ParseDateTime
+   /+ &s as String +/
+   /+ Returns DateTime +/
+   Local datetime &empty;
+   Local string &v = LTrim(RTrim(&s));
+   Local number &h = 0;
+   Local number &mi = 0;
+   Local number &sec = 0;
+
+   If Len(&v) < 10 Then
+      Return &empty;
+   End-If;
+
+   /* position 11 is the 'T' or ' ' separator */
+   If Len(&v) >= 16 Then
+      &h = %This.Num(&v, 12, 2);
+      &mi = %This.Num(&v, 15, 2);
+   End-If;
+   If Len(&v) >= 19 Then
+      &sec = %This.Num(&v, 18, 2);
+   End-If;
+
+   Return DateTime6(%This.Num(&v, 1, 4), %This.Num(&v, 6, 2), %This.Num(&v, 9, 2), &h, &mi, &sec);
+end-method;
+
+method ParseTime
+   /+ &s as String +/
+   /+ Returns Time +/
+   Local time &empty;
+   Local string &v = LTrim(RTrim(&s));
+   Local number &tPos;
+   Local number &sec = 0;
+
+   /* accept a full datetime and take the time portion */
+   &tPos = Find("T", &v);
+   If &tPos = 0 And
+         Len(&v) >= 19 Then
+      &tPos = 11;
+   End-If;
+   If &tPos > 0 Then
+      &v = Substring(&v, &tPos + 1, Len(&v) - &tPos);
+   End-If;
+
+   If Len(&v) < 5 Then
+      Return &empty;
+   End-If;
+   If Len(&v) >= 8 Then
+      &sec = %This.Num(&v, 7, 2);
+   End-If;
+   Return Time3(%This.Num(&v, 1, 2), %This.Num(&v, 4, 2), &sec);
+end-method;
+
+
+method Pad
+   /+ &n as Number, +/
+   /+ &width as Number +/
+   /+ Returns String +/
+   Local string &s = String(Int(&n));
+   While Len(&s) < &width
+      &s = "0" | &s;
+   End-While;
+   Return &s;
+end-method;
+
+method Num
+   /+ &s as String, +/
+   /+ &start as Number, +/
+   /+ &length as Number +/
+   /+ Returns Number +/
+   Local string &part = Substring(&s, &start, &length);
+   If Not IsDigits(&part) Then
+      throw CreateException(0, 0, "DG_SERIALIZE:Core:IsoDate - '%1' is not a valid ISO-8601 value", &s);
+   End-If;
+   Return Value(&part);
+end-method;

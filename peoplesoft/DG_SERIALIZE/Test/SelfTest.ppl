@@ -1,0 +1,487 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Test:SelfTest
+ *
+ * Self-contained regression test for the package. It needs no custom
+ * tables: records are built in memory on the delivered PSXLATITEM record,
+ * and the one database test only reads PSXLATITEM.
+ *
+ * Run it from any PeopleCode context, e.g. an App Engine step:
+ *
+ *    import DG_SERIALIZE:Test:SelfTest;
+ *    Local DG_SERIALIZE:Test:SelfTest &t = create DG_SERIALIZE:Test:SelfTest();
+ *    MessageBox(0, "", 0, 0, &t.Run());     (or WriteToLog / a long field)
+ *    If &t.Failed > 0 Then ... End-If;
+ * ========================================================================= */
+import DG_SERIALIZE:Serializer;
+import DG_SERIALIZE:Core:DataNode;
+import DG_SERIALIZE:Obj:ClassSchema;
+import DG_SERIALIZE:Test:Address;
+import DG_SERIALIZE:Test:Employee;
+import DG_SERIALIZE:Test:Money;
+
+class SelfTest
+   method SelfTest();
+   method Run() Returns string;
+
+   property number Passed get;
+   property number Failed get;
+
+private
+   instance array of string &log;
+   instance number &pass;
+   instance number &fail;
+   instance string &current;
+
+   method TestJsonParse();
+   method TestJsonEscapes();
+   method TestJsonErrors();
+   method TestXmlRoundTrip();
+   method TestXmlInference();
+   method TestRecord();
+   method TestRowset();
+   method TestClasses();
+   method TestQuery();
+
+   method NewSerializer() Returns DG_SERIALIZE:Serializer;
+   method Check(&name As string, &condition As boolean);
+   method CheckEqual(&name As string, &expected As string, &actual As string);
+   method Section(&name As string);
+   method Crash(&ex As Exception);
+end-class;
+
+
+method SelfTest
+   &log = CreateArrayRept("", 0);
+   &pass = 0;
+   &fail = 0;
+end-method;
+
+get Passed
+   /+ Returns Number +/
+   Return &pass;
+end-get;
+
+get Failed
+   /+ Returns Number +/
+   Return &fail;
+end-get;
+
+
+method Run
+   /+ Returns String +/
+   try
+      %This.TestJsonParse();
+   catch Exception &e1
+      %This.Crash(&e1);
+   end-try;
+   try
+      %This.TestJsonEscapes();
+   catch Exception &e2
+      %This.Crash(&e2);
+   end-try;
+   try
+      %This.TestJsonErrors();
+   catch Exception &e3
+      %This.Crash(&e3);
+   end-try;
+   try
+      %This.TestXmlRoundTrip();
+   catch Exception &e4
+      %This.Crash(&e4);
+   end-try;
+   try
+      %This.TestXmlInference();
+   catch Exception &e5
+      %This.Crash(&e5);
+   end-try;
+   try
+      %This.TestRecord();
+   catch Exception &e6
+      %This.Crash(&e6);
+   end-try;
+   try
+      %This.TestRowset();
+   catch Exception &e7
+      %This.Crash(&e7);
+   end-try;
+   try
+      %This.TestClasses();
+   catch Exception &e8
+      %This.Crash(&e8);
+   end-try;
+   try
+      %This.TestQuery();
+   catch Exception &e9
+      %This.Crash(&e9);
+   end-try;
+
+   &log.Push("");
+   &log.Push("DG_SERIALIZE self test: " | &pass | " passed, " | &fail | " failed");
+   Return &log.Join(Char(10));
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+
+method TestJsonParse
+   Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
+   Local DG_SERIALIZE:Core:DataNode &n;
+   Local string &json;
+   Local string &once;
+
+   %This.Section("JSON parse / write");
+
+   &json = " { ""name"" : ""Ada"", ""tags"":[""a"",""b"" ], ""n"":-12.5e1, ""pi"":3.14159265358979323846," | Char(10) | " ""ok"":true, ""no"":false, ""none"":null, ""nested"":{""x"":1,""empty"":[],""obj"":{}}}";
+   &n = &ser.FromJson(&json);
+
+   %This.CheckEqual("root kind", "OBJECT", &n.Kind);
+   %This.CheckEqual("string member", "Ada", &n.GetString("name"));
+   %This.Check("array count", &n.GetMember("tags").Count = 2);
+   %This.CheckEqual("array item", "b", &n.GetMember("tags").ValueAt(2).AsString());
+   %This.Check("exponent number", &n.GetNumber("n") = - 125);
+   %This.CheckEqual("precision kept", "3.14159265358979323846", &n.GetMember("pi").Text);
+   %This.Check("true", &n.GetBoolean("ok"));
+   %This.Check("false", Not &n.GetBoolean("no"));
+   %This.Check("null", &n.GetMember("none").IsNull());
+   %This.CheckEqual("nested", "1", &n.GetMember("nested").GetMember("x").Text);
+   %This.CheckEqual("member order", "tags", &n.KeyAt(2));
+
+   &once = &ser.ToJson(&n);
+   %This.CheckEqual("compact output", "{""name"":""Ada"",""tags"":[""a"",""b""],""n"":" | &n.GetMember("n").Text | ",""pi"":3.14159265358979323846,""ok"":true,""no"":false,""none"":null,""nested"":{""x"":1,""empty"":[],""obj"":{}}}", &once);
+   %This.CheckEqual("idempotent", &once, &ser.ToJson(&ser.FromJson(&once)));
+
+   &ser.JsonOut.Pretty = True;
+   &json = &ser.ToJson(&n);
+   &ser.JsonOut.Pretty = False;
+   %This.CheckEqual("pretty round trip", &once, &ser.ToJson(&ser.FromJson(&json)));
+end-method;
+
+
+method TestJsonEscapes
+   Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
+   Local DG_SERIALIZE:Core:DataNode &n;
+   Local string &bs = Char(92);
+   Local string &q = Char(34);
+   Local string &raw;
+
+   %This.Section("JSON escapes");
+
+   /* {"s":"a\"b\\c\nd\teé\/"} */
+   &n = &ser.FromJson("{" | &q | "s" | &q | ":" | &q | "a" | &bs | &q | "b" | &bs | &bs | "c" | &bs | "nd" | &bs | "te" | &bs | "u00e9" | &bs | "/" | &q | "}");
+   &raw = "a" | &q | "b" | &bs | "c" | Char(10) | "d" | Char(9) | "e" | Char(233) | "/";
+   %This.CheckEqual("decoded", &raw, &n.GetString("s"));
+
+   %This.CheckEqual("encoded", &q | "a" | &bs | &q | "b" | &bs | &bs | "c" | &bs | "nd" | &bs | "te" | Char(233) | "/" | &q, &ser.JsonOut.Quote(&raw));
+   %This.CheckEqual("control char", &q | &bs | "u0001" | &q, &ser.JsonOut.Quote(Char(1)));
+   %This.CheckEqual("round trip", &raw, &ser.FromJson(&ser.ToJson(&n)).GetString("s"));
+end-method;
+
+
+method TestJsonErrors
+   Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
+   Local array of string &bad = CreateArray("", "{", "[1,2", "{""a"" 1}", "[1,]x", "tru", "{""a"":1}}", "01x", """open");
+   Local number &i;
+   Local boolean &threw;
+   Local DG_SERIALIZE:Core:DataNode &n;
+
+   %This.Section("JSON error handling");
+
+   For &i = 1 To &bad.Len
+      &threw = False;
+      try
+         &n = &ser.FromJson(&bad [&i]);
+      catch Exception &ex
+         &threw = True;
+      end-try;
+      %This.Check("rejects: " | &bad [&i], &threw);
+   End-For;
+end-method;
+
+
+method TestXmlRoundTrip
+   Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
+   Local DG_SERIALIZE:Core:DataNode &n;
+   Local DG_SERIALIZE:Core:DataNode &back;
+   Local string &json;
+   Local string &xml;
+
+   %This.Section("XML round trip (typed)");
+
+   &json = "{""id"":""KU0001"",""amount"":12.50,""active"":true,""note"":null,""one"":[""only""],""rows"":[{""a"":1},{""a"":2}],""bad key"":""x & <y>"",""empty"":""""}";
+   &n = &ser.FromJson(&json);
+   &n.PutDate("hired", Date3(2020, 2, 29));
+
+   &xml = &ser.ToXml(&n);
+   &back = &ser.FromXml(&xml);
+
+   %This.CheckEqual("same JSON after XML", &ser.ToJson(&n), &ser.ToJson(&back));
+   %This.CheckEqual("single item array kept", "ARRAY", &back.GetMember("one").Kind);
+   %This.CheckEqual("number kind kept", "NUMBER", &back.GetMember("amount").Kind);
+   %This.CheckEqual("date kind kept", "DATE", &back.GetMember("hired").Kind);
+   %This.CheckEqual("invalid name kept", "x & <y>", &back.GetString("bad key"));
+   %This.CheckEqual("root name", "root", &ser.XmlIn.LastRootName);
+   %This.CheckEqual("XmlToJson", &ser.ToJson(&n), &ser.XmlToJson(&ser.JsonToXml(&ser.ToJson(&n))));
+end-method;
+
+
+method TestXmlInference
+   Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
+   Local DG_SERIALIZE:Core:DataNode &n;
+
+   %This.Section("XML without type hints");
+
+   &n = &ser.FromXml("<?xml version=""1.0""?><employee><name>Ada</name><skill>SQL</skill><skill>PeopleCode</skill><addr><city>Madison</city></addr><bio><![CDATA[a < b]]></bio></employee>");
+
+   %This.CheckEqual("root", "employee", &ser.XmlIn.LastRootName);
+   %This.CheckEqual("text element", "Ada", &n.GetString("name"));
+   %This.CheckEqual("repeated -> array", "ARRAY", &n.GetMember("skill").Kind);
+   %This.CheckEqual("array item", "PeopleCode", &n.GetMember("skill").ValueAt(2).AsString());
+   %This.CheckEqual("nested", "Madison", &n.GetMember("addr").GetString("city"));
+   %This.CheckEqual("CDATA", "a < b", &n.GetString("bio"));
+
+   &ser.XmlOut.TypeHints = False;
+   &ser.XmlOut.RootName = "employee";
+   %This.Check("plain XML has no hints", Find("dg_type", &ser.ToXml(&n)) = 0);
+end-method;
+
+
+method TestRecord
+   Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
+   Local Record &rec = CreateRecord(Record.PSXLATITEM);
+   Local Record &copy;
+   Local string &json;
+   Local DG_SERIALIZE:Core:DataNode &n;
+
+   %This.Section("Record");
+
+   &rec.FIELDNAME.Value = "DG_TEST";
+   &rec.FIELDVALUE.Value = "A";
+   &rec.EFFDT.Value = Date3(1999, 12, 31);
+   &rec.EFF_STATUS.Value = "A";
+   &rec.XLATLONGNAME.Value = "Say ""hi"" & <bye>";
+   &rec.XLATSHORTNAME.Value = "Hi";
+   &rec.LASTUPDDTTM.Value = DateTime6(2024, 5, 1, 13, 45, 30);
+
+   &n = &ser.Records.RecordToNode(&rec);
+   %This.CheckEqual("date as ISO", "1999-12-31", &n.GetString("EFFDT"));
+   %This.CheckEqual("datetime as ISO", "2024-05-01T13:45:30", &n.GetString("LASTUPDDTTM"));
+   %This.CheckEqual("date kind", "DATE", &n.GetMember("EFFDT").Kind);
+
+   /* JSON round trip */
+   &json = &ser.RecordToJson(&rec);
+   &copy = CreateRecord(Record.PSXLATITEM);
+   &ser.JsonToRecord(&json, &copy);
+   %This.CheckEqual("json char", &rec.XLATLONGNAME.Value, &copy.XLATLONGNAME.Value);
+   %This.Check("json date", &copy.EFFDT.Value = &rec.EFFDT.Value);
+   %This.Check("json datetime", &copy.LASTUPDDTTM.Value = &rec.LASTUPDDTTM.Value);
+
+   /* XML round trip */
+   &copy = CreateRecord(Record.PSXLATITEM);
+   &ser.XmlToRecord(&ser.RecordToXml(&rec), &copy);
+   %This.CheckEqual("xml char", &rec.XLATLONGNAME.Value, &copy.XLATLONGNAME.Value);
+   %This.Check("xml date", &copy.EFFDT.Value = &rec.EFFDT.Value);
+
+   /* key styles, and tolerant matching on the way back */
+   &ser.Records.KeyStyle = "CAMEL";
+   &n = &ser.Records.RecordToNode(&rec);
+   %This.Check("camelCase key", &n.HasMember("xlatlongname") And
+         &n.HasMember("effStatus"));
+   &copy = CreateRecord(Record.PSXLATITEM);
+   &ser.Records.KeyStyle = "FIELD";
+   &ser.Records.NodeToRecord(&n, &copy);
+   %This.CheckEqual("tolerant key match", "A", &copy.EFF_STATUS.Value);
+
+   /* IncludeEmpty = False drops blanks */
+   &ser.Records.IncludeEmpty = False;
+   &n = &ser.Records.RecordToNode(&rec);
+   %This.Check("empty omitted", Not &n.HasMember("LASTUPDOPRID"));
+
+   /* partial update leaves other fields alone */
+   &ser.JsonToRecord("{""XLATSHORTNAME"":""Changed""}", &copy);
+   %This.CheckEqual("partial: changed", "Changed", &copy.XLATSHORTNAME.Value);
+   %This.CheckEqual("partial: untouched", "A", &copy.EFF_STATUS.Value);
+end-method;
+
+
+method TestRowset
+   Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
+   Local Rowset &rs = CreateRowset(Record.PSXLATITEM);
+   Local Rowset &copy = CreateRowset(Record.PSXLATITEM);
+   Local Rowset &empty = CreateRowset(Record.PSXLATITEM);
+   Local Record &r;
+   Local string &json;
+
+   %This.Section("Rowset");
+
+   &r = &rs.GetRow(1).GetRecord(Record.PSXLATITEM);
+   &r.FIELDNAME.Value = "DG_TEST";
+   &r.FIELDVALUE.Value = "A";
+   &r.EFFDT.Value = Date3(2000, 1, 1);
+   &rs.InsertRow(1);
+   &r = &rs.GetRow(2).GetRecord(Record.PSXLATITEM);
+   &r.FIELDNAME.Value = "DG_TEST";
+   &r.FIELDVALUE.Value = "I";
+   &r.EFFDT.Value = Date3(2000, 1, 2);
+
+   &json = &ser.RowsetToJson(&rs);
+   %This.CheckEqual("empty rowset", "[]", &ser.RowsetToJson(&empty));
+
+   &ser.JsonToRowset(&json, &copy);
+   %This.Check("row count", &copy.ActiveRowCount = 2);
+   %This.CheckEqual("row 2 value", "I", &copy.GetRow(2).GetRecord(Record.PSXLATITEM).FIELDVALUE.Value);
+   %This.CheckEqual("rowset json round trip", &json, &ser.RowsetToJson(&copy));
+
+   &copy = CreateRowset(Record.PSXLATITEM);
+   &ser.XmlToRowset(&ser.RowsetToXml(&rs), &copy);
+   %This.CheckEqual("rowset xml round trip", &json, &ser.RowsetToJson(&copy));
+end-method;
+
+
+method TestClasses
+   Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
+   Local DG_SERIALIZE:Obj:ClassSchema &addrSchema;
+   Local DG_SERIALIZE:Obj:ClassSchema &empSchema;
+   Local DG_SERIALIZE:Test:Employee &emp = create DG_SERIALIZE:Test:Employee();
+   Local DG_SERIALIZE:Test:Employee &copy;
+   Local DG_SERIALIZE:Test:Address &a;
+   Local DG_SERIALIZE:Core:DataNode &n;
+   Local string &json;
+
+   %This.Section("Application classes");
+
+   &addrSchema = create DG_SERIALIZE:Obj:ClassSchema("DG_SERIALIZE:Test:Address");
+   &addrSchema.AddScalar("Street", "STRING").WithKey("street");
+   &addrSchema.AddScalar("City", "STRING").WithKey("city");
+   &addrSchema.AddScalar("PostalCode", "STRING").WithKey("zip");
+
+   &empSchema = create DG_SERIALIZE:Obj:ClassSchema("DG_SERIALIZE:Test:Employee");
+   &empSchema.AddScalar("EmplId", "STRING").WithKey("emplid");
+   &empSchema.AddScalar("Name", "STRING").WithKey("name");
+   &empSchema.AddScalar("Salary", "NUMBER").WithKey("salary");
+   &empSchema.AddScalar("Active", "BOOLEAN").WithKey("active");
+   &empSchema.AddScalar("HireDate", "DATE").WithKey("hireDate");
+   &empSchema.AddScalar("LastLogin", "DATETIME").WithKey("lastLogin");
+   &empSchema.AddScalarArray("Skills", "STRING").WithKey("skills");
+   &empSchema.AddObject("HomeAddress", "DG_SERIALIZE:Test:Address").WithKey("home");
+   &empSchema.AddObjectArray("PreviousAddresses", "DG_SERIALIZE:Test:Address").WithKey("previous");
+   /* Money has no schema: it implements Serializable */
+   &empSchema.AddObject("Bonus", "DG_SERIALIZE:Test:Money").WithKey("bonus");
+
+   &ser.Register(&addrSchema).Register(&empSchema);
+
+   &emp.EmplId = "KU0001";
+   &emp.Name = "Ada Lovelace";
+   &emp.Salary = 123456.78;
+   &emp.Active = True;
+   &emp.HireDate = Date3(2015, 12, 10);
+   &emp.LastLogin = DateTime6(2024, 5, 1, 8, 0, 5);
+   &emp.Skills.Push("PeopleCode");
+   &emp.Skills.Push("SQL");
+   &emp.HomeAddress = create DG_SERIALIZE:Test:Address();
+   &emp.HomeAddress.Street = "1 Main St";
+   &emp.HomeAddress.City = "Madison";
+   &emp.HomeAddress.PostalCode = "53703";
+   &a = create DG_SERIALIZE:Test:Address();
+   &a.City = "London";
+   &emp.PreviousAddresses.Push(&a);
+   &emp.Bonus = create DG_SERIALIZE:Test:Money();
+   &emp.Bonus.Amount = 1250.5;
+   &emp.Bonus.Currency = "EUR";
+
+   &json = &ser.ObjectToJson(&emp, "DG_SERIALIZE:Test:Employee");
+   &n = &ser.FromJson(&json);
+   %This.CheckEqual("renamed key", "53703", &n.GetMember("home").GetString("zip"));
+   %This.CheckEqual("date member", "2015-12-10", &n.GetString("hireDate"));
+   %This.CheckEqual("Serializable member", "1250.5 EUR", &n.GetString("bonus"));
+   %This.CheckEqual("object array", "London", &n.GetMember("previous").ValueAt(1).GetString("city"));
+
+   &copy = &ser.JsonToObject(&json, "DG_SERIALIZE:Test:Employee");
+   %This.CheckEqual("scalar", "Ada Lovelace", &copy.Name);
+   %This.Check("number", &copy.Salary = 123456.78);
+   %This.Check("boolean", &copy.Active);
+   %This.Check("date", &copy.HireDate = Date3(2015, 12, 10));
+   %This.Check("datetime", &copy.LastLogin = DateTime6(2024, 5, 1, 8, 0, 5));
+   %This.CheckEqual("scalar array", "SQL", &copy.Skills [2]);
+   %This.CheckEqual("nested object", "Madison", &copy.HomeAddress.City);
+   &a = &copy.PreviousAddresses [1];
+   %This.CheckEqual("object array item", "London", &a.City);
+   %This.Check("Serializable amount", &copy.Bonus.Amount = 1250.5);
+   %This.CheckEqual("Serializable currency", "EUR", &copy.Bonus.Currency);
+
+   /* the same object through XML */
+   &copy = &ser.XmlToObject(&ser.ObjectToXml(&emp, "DG_SERIALIZE:Test:Employee"), "DG_SERIALIZE:Test:Employee");
+   %This.CheckEqual("xml round trip", &json, &ser.ObjectToJson(&copy, "DG_SERIALIZE:Test:Employee"));
+
+   /* null nested object */
+   &emp.HomeAddress = Null;
+   &n = &ser.Classes.ToNode(&emp, "DG_SERIALIZE:Test:Employee");
+   %This.Check("null object", &n.GetMember("home").IsNull());
+end-method;
+
+
+method TestQuery
+   Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
+   Local DG_SERIALIZE:Core:DataNode &n;
+   Local boolean &threw = False;
+
+   %This.Section("SQL query (read only)");
+
+   &n = &ser.Records.QueryToNode("PSXLATITEM", "WHERE FIELDNAME = :1 ORDER BY FIELDVALUE", CreateArrayAny("EFF_STATUS"));
+   %This.Check("rows returned", &n.Count >= 2);
+   %This.CheckEqual("first row", "A", &n.ValueAt(1).GetString("FIELDVALUE"));
+
+   try
+      &n = &ser.Records.QueryToNode("PSXLATITEM WHERE 1=1 --", "", Null);
+   catch Exception &ex
+      &threw = True;
+   end-try;
+   %This.Check("rejects injected record name", &threw);
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+
+method NewSerializer
+   /+ Returns DG_SERIALIZE:Serializer +/
+   Return create DG_SERIALIZE:Serializer();
+end-method;
+
+method Section
+   /+ &name as String +/
+   &current = &name;
+   &log.Push("");
+   &log.Push("== " | &name);
+end-method;
+
+method Check
+   /+ &name as String, +/
+   /+ &condition as Boolean +/
+   If &condition Then
+      &pass = &pass + 1;
+      &log.Push("  PASS  " | &name);
+   Else
+      &fail = &fail + 1;
+      &log.Push("  FAIL  " | &name);
+   End-If;
+end-method;
+
+method CheckEqual
+   /+ &name as String, +/
+   /+ &expected as String, +/
+   /+ &actual as String +/
+   If &expected = &actual Then
+      &pass = &pass + 1;
+      &log.Push("  PASS  " | &name);
+   Else
+      &fail = &fail + 1;
+      &log.Push("  FAIL  " | &name);
+      &log.Push("        expected: " | &expected);
+      &log.Push("        actual:   " | &actual);
+   End-If;
+end-method;
+
+method Crash
+   /+ &ex as Exception +/
+   &fail = &fail + 1;
+   &log.Push("  FAIL  " | &current | " aborted: " | &ex.ToString());
+end-method;

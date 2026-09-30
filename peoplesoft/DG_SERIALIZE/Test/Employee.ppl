@@ -1,0 +1,33 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Test:Employee
+ *
+ * Sample "established" class with every kind of property the ClassMapper
+ * supports: scalars of each type, a scalar array, a nested object, an
+ * object array and a Serializable member.
+ *
+ * Object-array properties are declared "array of any" because arrays built
+ * during deserialization cannot be typed to a specific application class.
+ * ========================================================================= */
+import DG_SERIALIZE:Test:Address;
+import DG_SERIALIZE:Test:Money;
+
+class Employee
+   method Employee();
+
+   property string EmplId;
+   property string Name;
+   property number Salary;
+   property boolean Active;
+   property date HireDate;
+   property datetime LastLogin;
+   property array of string Skills;
+   property DG_SERIALIZE:Test:Address HomeAddress;
+   property array of any PreviousAddresses;
+   property DG_SERIALIZE:Test:Money Bonus;
+end-class;
+
+
+method Employee
+   %This.Skills = CreateArrayRept("", 0);
+   %This.PreviousAddresses = CreateArrayAny();
+end-method;

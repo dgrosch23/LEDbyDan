@@ -1,0 +1,260 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Serializer
+ *
+ * One-stop facade over the package. Every conversion goes through a
+ * DataNode, so any source can be turned into any target:
+ *
+ *                  JSON text   XML text
+ *                       \        /
+ *   Record / Rowset --  DataNode  -- application class instances
+ *   SQL query       --/        \-- database tables (INSERT/UPDATE/UPSERT)
+ *
+ *    import DG_SERIALIZE:Serializer;
+ *    Local DG_SERIALIZE:Serializer &ser = create DG_SERIALIZE:Serializer();
+ *    &ser.JsonOut.Pretty = True;
+ *    &ser.Records.KeyStyle = "CAMEL";
+ *
+ *    Local string &json = &ser.RowsetToJson(&rs);
+ *    &ser.JsonToRecord(&requestBody, &rec);
+ *    Local string &xml = &ser.JsonToXml(&json);
+ *    Local number &rows = &ser.JsonToDatabase(&json, "MY_STAGE_TBL", "UPSERT");
+ *
+ * The component objects (JsonIn, JsonOut, XmlIn, XmlOut, Records, Classes)
+ * are exposed so each can be configured or used on its own.
+ * ========================================================================= */
+import DG_SERIALIZE:Core:DataNode;
+import DG_SERIALIZE:Json:JsonReader;
+import DG_SERIALIZE:Json:JsonWriter;
+import DG_SERIALIZE:Xml:XmlReader;
+import DG_SERIALIZE:Xml:XmlWriter;
+import DG_SERIALIZE:Db:RecordMapper;
+import DG_SERIALIZE:Obj:ClassMapper;
+import DG_SERIALIZE:Obj:ClassSchema;
+
+class Serializer
+   method Serializer();
+
+   property DG_SERIALIZE:Json:JsonReader JsonIn;
+   property DG_SERIALIZE:Json:JsonWriter JsonOut;
+   property DG_SERIALIZE:Xml:XmlReader XmlIn;
+   property DG_SERIALIZE:Xml:XmlWriter XmlOut;
+   property DG_SERIALIZE:Db:RecordMapper Records;
+   property DG_SERIALIZE:Obj:ClassMapper Classes;
+
+   /* ---- DataNode <-> text ---- */
+   method ToJson(&node As DG_SERIALIZE:Core:DataNode) Returns string;
+   method FromJson(&json As string) Returns DG_SERIALIZE:Core:DataNode;
+   method ToXml(&node As DG_SERIALIZE:Core:DataNode) Returns string;
+   method FromXml(&xml As string) Returns DG_SERIALIZE:Core:DataNode;
+
+   /* ---- format conversion ---- */
+   method JsonToXml(&json As string) Returns string;
+   method XmlToJson(&xml As string) Returns string;
+
+   /* ---- Record ---- */
+   method RecordToJson(&rec As Record) Returns string;
+   method JsonToRecord(&json As string, &rec As Record);
+   method RecordToXml(&rec As Record) Returns string;
+   method XmlToRecord(&xml As string, &rec As Record);
+
+   /* ---- Rowset ---- */
+   method RowsetToJson(&rs As Rowset) Returns string;
+   method JsonToRowset(&json As string, &rs As Rowset);
+   method RowsetToXml(&rs As Rowset) Returns string;
+   method XmlToRowset(&xml As string, &rs As Rowset);
+
+   /* ---- SQL / database ---- */
+   method QueryToJson(&recName As string, &whereClause As string, &binds As array of any) Returns string;
+   method QueryToXml(&recName As string, &whereClause As string, &binds As array of any) Returns string;
+   method JsonToDatabase(&json As string, &recName As string, &mode As string) Returns number;
+   method XmlToDatabase(&xml As string, &recName As string, &mode As string) Returns number;
+
+   /* ---- application classes ---- */
+   method Register(&schema As DG_SERIALIZE:Obj:ClassSchema) Returns DG_SERIALIZE:Serializer;
+   method ObjectToJson(&obj As object, &classPath As string) Returns string;
+   method JsonToObject(&json As string, &classPath As string) Returns object;
+   method ObjectToXml(&obj As object, &classPath As string) Returns string;
+   method XmlToObject(&xml As string, &classPath As string) Returns object;
+end-class;
+
+
+method Serializer
+   %This.JsonIn = create DG_SERIALIZE:Json:JsonReader();
+   %This.JsonOut = create DG_SERIALIZE:Json:JsonWriter();
+   %This.XmlIn = create DG_SERIALIZE:Xml:XmlReader();
+   %This.XmlOut = create DG_SERIALIZE:Xml:XmlWriter();
+   %This.Records = create DG_SERIALIZE:Db:RecordMapper();
+   %This.Classes = create DG_SERIALIZE:Obj:ClassMapper();
+
+   /* one RecordMapper configuration for records nested in classes, too */
+   %This.Classes.Records = %This.Records;
+end-method;
+
+
+/* ---- DataNode <-> text ---- */
+
+method ToJson
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   /+ Returns String +/
+   Return %This.JsonOut.Write(&node);
+end-method;
+
+method FromJson
+   /+ &json as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Return %This.JsonIn.Read(&json);
+end-method;
+
+method ToXml
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   /+ Returns String +/
+   Return %This.XmlOut.Write(&node);
+end-method;
+
+method FromXml
+   /+ &xml as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Return %This.XmlIn.Read(&xml);
+end-method;
+
+
+/* ---- format conversion ---- */
+
+method JsonToXml
+   /+ &json as String +/
+   /+ Returns String +/
+   Return %This.ToXml(%This.FromJson(&json));
+end-method;
+
+method XmlToJson
+   /+ &xml as String +/
+   /+ Returns String +/
+   Return %This.ToJson(%This.FromXml(&xml));
+end-method;
+
+
+/* ---- Record ---- */
+
+method RecordToJson
+   /+ &rec as Record +/
+   /+ Returns String +/
+   Return %This.ToJson(%This.Records.RecordToNode(&rec));
+end-method;
+
+method JsonToRecord
+   /+ &json as String, +/
+   /+ &rec as Record +/
+   %This.Records.NodeToRecord(%This.FromJson(&json), &rec);
+end-method;
+
+method RecordToXml
+   /+ &rec as Record +/
+   /+ Returns String +/
+   Return %This.ToXml(%This.Records.RecordToNode(&rec));
+end-method;
+
+method XmlToRecord
+   /+ &xml as String, +/
+   /+ &rec as Record +/
+   %This.Records.NodeToRecord(%This.FromXml(&xml), &rec);
+end-method;
+
+
+/* ---- Rowset ---- */
+
+method RowsetToJson
+   /+ &rs as Rowset +/
+   /+ Returns String +/
+   Return %This.ToJson(%This.Records.RowsetToNode(&rs));
+end-method;
+
+method JsonToRowset
+   /+ &json as String, +/
+   /+ &rs as Rowset +/
+   %This.Records.NodeToRowset(%This.FromJson(&json), &rs);
+end-method;
+
+method RowsetToXml
+   /+ &rs as Rowset +/
+   /+ Returns String +/
+   Return %This.ToXml(%This.Records.RowsetToNode(&rs));
+end-method;
+
+method XmlToRowset
+   /+ &xml as String, +/
+   /+ &rs as Rowset +/
+   %This.Records.NodeToRowset(%This.FromXml(&xml), &rs);
+end-method;
+
+
+/* ---- SQL / database ---- */
+
+method QueryToJson
+   /+ &recName as String, +/
+   /+ &whereClause as String, +/
+   /+ &binds as Array of Any +/
+   /+ Returns String +/
+   Return %This.ToJson(%This.Records.QueryToNode(&recName, &whereClause, &binds));
+end-method;
+
+method QueryToXml
+   /+ &recName as String, +/
+   /+ &whereClause as String, +/
+   /+ &binds as Array of Any +/
+   /+ Returns String +/
+   Return %This.ToXml(%This.Records.QueryToNode(&recName, &whereClause, &binds));
+end-method;
+
+method JsonToDatabase
+   /+ &json as String, +/
+   /+ &recName as String, +/
+   /+ &mode as String +/
+   /+ Returns Number +/
+   Return %This.Records.SaveToDatabase(%This.FromJson(&json), &recName, &mode);
+end-method;
+
+method XmlToDatabase
+   /+ &xml as String, +/
+   /+ &recName as String, +/
+   /+ &mode as String +/
+   /+ Returns Number +/
+   Return %This.Records.SaveToDatabase(%This.FromXml(&xml), &recName, &mode);
+end-method;
+
+
+/* ---- application classes ---- */
+
+method Register
+   /+ &schema as DG_SERIALIZE:Obj:ClassSchema +/
+   /+ Returns DG_SERIALIZE:Serializer +/
+   %This.Classes.Register(&schema);
+   Return %This;
+end-method;
+
+method ObjectToJson
+   /+ &obj as Object, +/
+   /+ &classPath as String +/
+   /+ Returns String +/
+   Return %This.ToJson(%This.Classes.ToNode(&obj, &classPath));
+end-method;
+
+method JsonToObject
+   /+ &json as String, +/
+   /+ &classPath as String +/
+   /+ Returns Object +/
+   Return %This.Classes.FromNode(%This.FromJson(&json), &classPath);
+end-method;
+
+method ObjectToXml
+   /+ &obj as Object, +/
+   /+ &classPath as String +/
+   /+ Returns String +/
+   Return %This.ToXml(%This.Classes.ToNode(&obj, &classPath));
+end-method;
+
+method XmlToObject
+   /+ &xml as String, +/
+   /+ &classPath as String +/
+   /+ Returns Object +/
+   Return %This.Classes.FromNode(%This.FromXml(&xml), &classPath);
+end-method;

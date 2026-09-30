@@ -1,0 +1,651 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Core:DataNode
+ *
+ * Format-neutral data tree. Every reader/writer/mapper in the package
+ * converts to and from this structure, so any source (JSON, XML, Record,
+ * Rowset, SQL, application class) can be turned into any target by going
+ * through a DataNode.
+ *
+ * Kinds:  OBJECT, ARRAY, STRING, NUMBER, BOOLEAN, NULL, DATE, DATETIME, TIME
+ *
+ * Scalars are stored as canonical text:
+ *    NUMBER    "123.45"             BOOLEAN   "true" / "false"
+ *    DATE      "YYYY-MM-DD"         DATETIME  "YYYY-MM-DDTHH:MM:SS"
+ *    TIME      "HH:MM:SS"           NULL      ""
+ *
+ * Typed getters (AsNumber, AsDate, ...) coerce from any scalar kind, so a
+ * date that arrived as a JSON string can still be read with AsDate().
+ * ========================================================================= */
+import DG_SERIALIZE:Core:IsoDate;
+
+class DataNode
+   method DataNode(&kind As string);
+
+   property string Kind get;
+   property string Text get;
+   property number Count get;
+
+   method IsObject() Returns boolean;
+   method IsArray() Returns boolean;
+   method IsScalar() Returns boolean;
+   method IsNull() Returns boolean;
+
+   /* ---- scalar setters (they change this node's kind) ---- */
+   method SetString(&value As string) Returns DG_SERIALIZE:Core:DataNode;
+   method SetNumber(&value As number) Returns DG_SERIALIZE:Core:DataNode;
+   method SetNumberText(&text As string) Returns DG_SERIALIZE:Core:DataNode;
+   method SetBoolean(&value As boolean) Returns DG_SERIALIZE:Core:DataNode;
+   method SetDate(&value As date) Returns DG_SERIALIZE:Core:DataNode;
+   method SetDateTime(&value As datetime) Returns DG_SERIALIZE:Core:DataNode;
+   method SetTime(&value As time) Returns DG_SERIALIZE:Core:DataNode;
+   method SetNull() Returns DG_SERIALIZE:Core:DataNode;
+   method SetScalar(&kind As string, &text As string) Returns DG_SERIALIZE:Core:DataNode;
+
+   /* ---- scalar getters (coercing) ---- */
+   method AsString() Returns string;
+   method AsNumber() Returns number;
+   method AsBoolean() Returns boolean;
+   method AsDate() Returns date;
+   method AsDateTime() Returns datetime;
+   method AsTime() Returns time;
+
+   /* ---- OBJECT members (insertion order is preserved) ---- */
+   method Put(&key As string, &node As DG_SERIALIZE:Core:DataNode) Returns DG_SERIALIZE:Core:DataNode;
+   method PutString(&key As string, &value As string) Returns DG_SERIALIZE:Core:DataNode;
+   method PutNumber(&key As string, &value As number) Returns DG_SERIALIZE:Core:DataNode;
+   method PutBoolean(&key As string, &value As boolean) Returns DG_SERIALIZE:Core:DataNode;
+   method PutDate(&key As string, &value As date) Returns DG_SERIALIZE:Core:DataNode;
+   method PutDateTime(&key As string, &value As datetime) Returns DG_SERIALIZE:Core:DataNode;
+   method PutTime(&key As string, &value As time) Returns DG_SERIALIZE:Core:DataNode;
+   method PutNull(&key As string) Returns DG_SERIALIZE:Core:DataNode;
+   method HasMember(&key As string) Returns boolean;
+   method GetMember(&key As string) Returns DG_SERIALIZE:Core:DataNode;
+   method RemoveMember(&key As string);
+   method KeyAt(&index As number) Returns string;
+
+   /* typed member getters: return ""/0/False/empty when missing or null */
+   method GetString(&key As string) Returns string;
+   method GetNumber(&key As string) Returns number;
+   method GetBoolean(&key As string) Returns boolean;
+   method GetDate(&key As string) Returns date;
+   method GetDateTime(&key As string) Returns datetime;
+   method GetTime(&key As string) Returns time;
+
+   /* ---- ARRAY items ---- */
+   method Add(&node As DG_SERIALIZE:Core:DataNode) Returns DG_SERIALIZE:Core:DataNode;
+   method AddString(&value As string) Returns DG_SERIALIZE:Core:DataNode;
+   method AddNumber(&value As number) Returns DG_SERIALIZE:Core:DataNode;
+   method AddBoolean(&value As boolean) Returns DG_SERIALIZE:Core:DataNode;
+   method AddNull() Returns DG_SERIALIZE:Core:DataNode;
+
+   /* works for both OBJECT (member value) and ARRAY (item), 1-based */
+   method ValueAt(&index As number) Returns DG_SERIALIZE:Core:DataNode;
+
+private
+   instance string &kind_;
+   instance string &text_;
+   instance array of string &keys_;
+   instance array of any &values_;
+   instance DG_SERIALIZE:Core:IsoDate &iso_;
+
+   method Iso() Returns DG_SERIALIZE:Core:IsoDate;
+   method RequireKind(&kind As string, &operation As string);
+   method Fail(&message As string);
+end-class;
+
+
+method DataNode
+   /+ &kind as String +/
+   Local string &k = Upper(&kind);
+
+   If &k <> "OBJECT" And
+         &k <> "ARRAY" And
+         &k <> "STRING" And
+         &k <> "NUMBER" And
+         &k <> "BOOLEAN" And
+         &k <> "NULL" And
+         &k <> "DATE" And
+         &k <> "DATETIME" And
+         &k <> "TIME" Then
+      throw CreateException(0, 0, "DG_SERIALIZE: unknown node kind '%1'", &kind);
+   End-If;
+
+   &kind_ = &k;
+   &text_ = "";
+   &keys_ = CreateArrayRept("", 0);
+   &values_ = CreateArrayAny();
+
+   If &k = "NUMBER" Then
+      &text_ = "0";
+   End-If;
+   If &k = "BOOLEAN" Then
+      &text_ = "false";
+   End-If;
+end-method;
+
+
+get Kind
+   /+ Returns String +/
+   Return &kind_;
+end-get;
+
+get Text
+   /+ Returns String +/
+   Return &text_;
+end-get;
+
+get Count
+   /+ Returns Number +/
+   If &kind_ = "OBJECT" Then
+      Return &keys_.Len;
+   End-If;
+   If &kind_ = "ARRAY" Then
+      Return &values_.Len;
+   End-If;
+   Return 0;
+end-get;
+
+
+method IsObject
+   /+ Returns Boolean +/
+   Return (&kind_ = "OBJECT");
+end-method;
+
+method IsArray
+   /+ Returns Boolean +/
+   Return (&kind_ = "ARRAY");
+end-method;
+
+method IsScalar
+   /+ Returns Boolean +/
+   Return (&kind_ <> "OBJECT" And
+      &kind_ <> "ARRAY");
+end-method;
+
+method IsNull
+   /+ Returns Boolean +/
+   Return (&kind_ = "NULL");
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* Scalar setters                                                           */
+/* ------------------------------------------------------------------------ */
+
+method SetString
+   /+ &value as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   &kind_ = "STRING";
+   &text_ = &value;
+   Return %This;
+end-method;
+
+method SetNumber
+   /+ &value as Number +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local string &t = String(&value);
+
+   /* normalise ".5" / "-.5" so the text is valid JSON */
+   If Substring(&t, 1, 1) = "." Then
+      &t = "0" | &t;
+   End-If;
+   If Substring(&t, 1, 2) = "-." Then
+      &t = "-0" | Substring(&t, 2, Len(&t) - 1);
+   End-If;
+   If None(&t) Then
+      &t = "0";
+   End-If;
+
+   &kind_ = "NUMBER";
+   &text_ = &t;
+   Return %This;
+end-method;
+
+method SetNumberText
+   /+ &text as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local string &t = LTrim(RTrim(&text));
+   Local number &ePos = Find("E", Upper(&t));
+   Local string &expText;
+   Local number &mantissa;
+   Local number &exponent;
+
+   If &ePos > 0 Then
+      /* exponent notation (1.5e3) - PeopleCode Value() does not parse it */
+      &expText = Substring(&t, &ePos + 1, Len(&t) - &ePos);
+      If Substring(&expText, 1, 1) = "+" Then
+         &expText = Substring(&expText, 2, Len(&expText) - 1);
+      End-If;
+      If Not IsNumber(Substring(&t, 1, &ePos - 1)) Or
+            Not IsNumber(&expText) Then
+         %This.Fail("invalid number '" | &text | "'");
+      End-If;
+      &mantissa = Value(Substring(&t, 1, &ePos - 1));
+      &exponent = Value(&expText);
+      Return %This.SetNumber(&mantissa * (10 ** &exponent));
+   End-If;
+
+   If Not IsNumber(&t) Then
+      %This.Fail("invalid number '" | &text | "'");
+   End-If;
+
+   /* keep the original text so no precision is lost */
+   &kind_ = "NUMBER";
+   &text_ = &t;
+   Return %This;
+end-method;
+
+method SetBoolean
+   /+ &value as Boolean +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   &kind_ = "BOOLEAN";
+   If &value Then
+      &text_ = "true";
+   Else
+      &text_ = "false";
+   End-If;
+   Return %This;
+end-method;
+
+method SetDate
+   /+ &value as Date +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   If None(&value) Then
+      Return %This.SetNull();
+   End-If;
+   &kind_ = "DATE";
+   &text_ = %This.Iso().FormatDate(&value);
+   Return %This;
+end-method;
+
+method SetDateTime
+   /+ &value as DateTime +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   If None(&value) Then
+      Return %This.SetNull();
+   End-If;
+   &kind_ = "DATETIME";
+   &text_ = %This.Iso().FormatDateTime(&value);
+   Return %This;
+end-method;
+
+method SetTime
+   /+ &value as Time +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   If None(&value) Then
+      Return %This.SetNull();
+   End-If;
+   &kind_ = "TIME";
+   &text_ = %This.Iso().FormatTime(&value);
+   Return %This;
+end-method;
+
+method SetNull
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   &kind_ = "NULL";
+   &text_ = "";
+   Return %This;
+end-method;
+
+method SetScalar
+   /+ &kind as String, +/
+   /+ &text as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local string &k = Upper(&kind);
+
+   Evaluate &k
+   When "STRING"
+      Return %This.SetString(&text);
+   When "NUMBER"
+      Return %This.SetNumberText(&text);
+   When "BOOLEAN"
+      Local string &b = Lower(LTrim(RTrim(&text)));
+      Return %This.SetBoolean(&b = "true" Or
+            &b = "y" Or
+            &b = "yes" Or
+            &b = "1");
+   When "NULL"
+      Return %This.SetNull();
+   When "DATE"
+      Return %This.SetDate(%This.Iso().ParseDate(&text));
+   When "DATETIME"
+      Return %This.SetDateTime(%This.Iso().ParseDateTime(&text));
+   When "TIME"
+      Return %This.SetTime(%This.Iso().ParseTime(&text));
+   End-Evaluate;
+
+   %This.Fail("'" | &kind | "' is not a scalar kind");
+   Return %This;
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* Scalar getters                                                           */
+/* ------------------------------------------------------------------------ */
+
+method AsString
+   /+ Returns String +/
+   Return &text_;
+end-method;
+
+method AsNumber
+   /+ Returns Number +/
+   Local string &t = LTrim(RTrim(&text_));
+
+   If &kind_ = "BOOLEAN" Then
+      If &text_ = "true" Then
+         Return 1;
+      End-If;
+      Return 0;
+   End-If;
+   If None(&t) Then
+      Return 0;
+   End-If;
+   If Find("E", Upper(&t)) > 0 Then
+      Local DG_SERIALIZE:Core:DataNode &tmp = create DG_SERIALIZE:Core:DataNode("NUMBER");
+      &t = &tmp.SetNumberText(&t).Text;
+   End-If;
+   If Not IsNumber(&t) Then
+      %This.Fail("value '" | &text_ | "' is not numeric");
+   End-If;
+   Return Value(&t);
+end-method;
+
+method AsBoolean
+   /+ Returns Boolean +/
+   Local string &t = Lower(LTrim(RTrim(&text_)));
+
+   If &kind_ = "NUMBER" Then
+      Return (%This.AsNumber() <> 0);
+   End-If;
+   Return (&t = "true" Or
+      &t = "y" Or
+      &t = "yes" Or
+      &t = "1");
+end-method;
+
+method AsDate
+   /+ Returns Date +/
+   Return %This.Iso().ParseDate(&text_);
+end-method;
+
+method AsDateTime
+   /+ Returns DateTime +/
+   Return %This.Iso().ParseDateTime(&text_);
+end-method;
+
+method AsTime
+   /+ Returns Time +/
+   Return %This.Iso().ParseTime(&text_);
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* OBJECT members                                                           */
+/* ------------------------------------------------------------------------ */
+
+method Put
+   /+ &key as String, +/
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &value = &node;
+   Local number &idx;
+
+   %This.RequireKind("OBJECT", "Put");
+   If &value = Null Then
+      &value = create DG_SERIALIZE:Core:DataNode("NULL");
+   End-If;
+
+   &idx = &keys_.Find(&key);
+   If &idx > 0 Then
+      &values_ [&idx] = &value;
+   Else
+      &keys_.Push(&key);
+      &values_.Push(&value);
+   End-If;
+   Return %This;
+end-method;
+
+method PutString
+   /+ &key as String, +/
+   /+ &value as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("STRING");
+   Return %This.Put(&key, &n.SetString(&value));
+end-method;
+
+method PutNumber
+   /+ &key as String, +/
+   /+ &value as Number +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("NUMBER");
+   Return %This.Put(&key, &n.SetNumber(&value));
+end-method;
+
+method PutBoolean
+   /+ &key as String, +/
+   /+ &value as Boolean +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("BOOLEAN");
+   Return %This.Put(&key, &n.SetBoolean(&value));
+end-method;
+
+method PutDate
+   /+ &key as String, +/
+   /+ &value as Date +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("DATE");
+   Return %This.Put(&key, &n.SetDate(&value));
+end-method;
+
+method PutDateTime
+   /+ &key as String, +/
+   /+ &value as DateTime +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("DATETIME");
+   Return %This.Put(&key, &n.SetDateTime(&value));
+end-method;
+
+method PutTime
+   /+ &key as String, +/
+   /+ &value as Time +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("TIME");
+   Return %This.Put(&key, &n.SetTime(&value));
+end-method;
+
+method PutNull
+   /+ &key as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Return %This.Put(&key, create DG_SERIALIZE:Core:DataNode("NULL"));
+end-method;
+
+method HasMember
+   /+ &key as String +/
+   /+ Returns Boolean +/
+   If &kind_ <> "OBJECT" Then
+      Return False;
+   End-If;
+   Return (&keys_.Find(&key) > 0);
+end-method;
+
+method GetMember
+   /+ &key as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local number &idx;
+
+   If &kind_ <> "OBJECT" Then
+      Return Null;
+   End-If;
+   &idx = &keys_.Find(&key);
+   If &idx = 0 Then
+      Return Null;
+   End-If;
+   Return &values_ [&idx];
+end-method;
+
+method RemoveMember
+   /+ &key as String +/
+   Local number &idx;
+
+   %This.RequireKind("OBJECT", "RemoveMember");
+   &idx = &keys_.Find(&key);
+   If &idx > 0 Then
+      &keys_.Splice(&idx, 1);
+      &values_.Splice(&idx, 1);
+   End-If;
+end-method;
+
+method KeyAt
+   /+ &index as Number +/
+   /+ Returns String +/
+   %This.RequireKind("OBJECT", "KeyAt");
+   Return &keys_ [&index];
+end-method;
+
+method GetString
+   /+ &key as String +/
+   /+ Returns String +/
+   Local DG_SERIALIZE:Core:DataNode &n = %This.GetMember(&key);
+   If &n = Null Then
+      Return "";
+   End-If;
+   Return &n.AsString();
+end-method;
+
+method GetNumber
+   /+ &key as String +/
+   /+ Returns Number +/
+   Local DG_SERIALIZE:Core:DataNode &n = %This.GetMember(&key);
+   If &n = Null Then
+      Return 0;
+   End-If;
+   Return &n.AsNumber();
+end-method;
+
+method GetBoolean
+   /+ &key as String +/
+   /+ Returns Boolean +/
+   Local DG_SERIALIZE:Core:DataNode &n = %This.GetMember(&key);
+   If &n = Null Then
+      Return False;
+   End-If;
+   Return &n.AsBoolean();
+end-method;
+
+method GetDate
+   /+ &key as String +/
+   /+ Returns Date +/
+   Local DG_SERIALIZE:Core:DataNode &n = %This.GetMember(&key);
+   Local date &empty;
+   If &n = Null Then
+      Return &empty;
+   End-If;
+   Return &n.AsDate();
+end-method;
+
+method GetDateTime
+   /+ &key as String +/
+   /+ Returns DateTime +/
+   Local DG_SERIALIZE:Core:DataNode &n = %This.GetMember(&key);
+   Local datetime &empty;
+   If &n = Null Then
+      Return &empty;
+   End-If;
+   Return &n.AsDateTime();
+end-method;
+
+method GetTime
+   /+ &key as String +/
+   /+ Returns Time +/
+   Local DG_SERIALIZE:Core:DataNode &n = %This.GetMember(&key);
+   Local time &empty;
+   If &n = Null Then
+      Return &empty;
+   End-If;
+   Return &n.AsTime();
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* ARRAY items                                                              */
+/* ------------------------------------------------------------------------ */
+
+method Add
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   %This.RequireKind("ARRAY", "Add");
+   If &node = Null Then
+      &values_.Push(create DG_SERIALIZE:Core:DataNode("NULL"));
+   Else
+      &values_.Push(&node);
+   End-If;
+   Return %This;
+end-method;
+
+method AddString
+   /+ &value as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("STRING");
+   Return %This.Add(&n.SetString(&value));
+end-method;
+
+method AddNumber
+   /+ &value as Number +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("NUMBER");
+   Return %This.Add(&n.SetNumber(&value));
+end-method;
+
+method AddBoolean
+   /+ &value as Boolean +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("BOOLEAN");
+   Return %This.Add(&n.SetBoolean(&value));
+end-method;
+
+method AddNull
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Return %This.Add(create DG_SERIALIZE:Core:DataNode("NULL"));
+end-method;
+
+method ValueAt
+   /+ &index as Number +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   If &kind_ <> "OBJECT" And
+         &kind_ <> "ARRAY" Then
+      %This.Fail("ValueAt requires an OBJECT or ARRAY node, not " | &kind_);
+   End-If;
+   If &index < 1 Or
+         &index > &values_.Len Then
+      %This.Fail("index " | &index | " is out of range (count " | &values_.Len | ")");
+   End-If;
+   Return &values_ [&index];
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* Private                                                                  */
+/* ------------------------------------------------------------------------ */
+
+method Iso
+   /+ Returns DG_SERIALIZE:Core:IsoDate +/
+   /* created lazily: most nodes never touch dates */
+   If &iso_ = Null Then
+      &iso_ = create DG_SERIALIZE:Core:IsoDate();
+   End-If;
+   Return &iso_;
+end-method;
+
+method RequireKind
+   /+ &kind as String, +/
+   /+ &operation as String +/
+   If &kind_ <> &kind Then
+      %This.Fail(&operation | " requires a " | &kind | " node, not " | &kind_);
+   End-If;
+end-method;
+
+method Fail
+   /+ &message as String +/
+   throw CreateException(0, 0, "DG_SERIALIZE:Core:DataNode - %1", &message);
+end-method;

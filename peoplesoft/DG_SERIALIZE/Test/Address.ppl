@@ -1,0 +1,21 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Test:Address
+ *
+ * Sample "established" class: plain public properties, no knowledge of
+ * serialization. It is mapped with a ClassSchema (see SelfTest).
+ * ========================================================================= */
+
+class Address
+   method Address();
+
+   property string Street;
+   property string City;
+   property string PostalCode;
+end-class;
+
+
+method Address
+   %This.Street = "";
+   %This.City = "";
+   %This.PostalCode = "";
+end-method;

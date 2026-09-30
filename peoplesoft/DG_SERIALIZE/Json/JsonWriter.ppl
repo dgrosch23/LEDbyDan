@@ -1,0 +1,190 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Json:JsonWriter
+ *
+ * Renders a DataNode tree as JSON text.
+ *
+ *    Local DG_SERIALIZE:Json:JsonWriter &w = create DG_SERIALIZE:Json:JsonWriter();
+ *    &w.Pretty = True;                  (default False = compact)
+ *    Local string &json = &w.Write(&node);
+ *
+ * DATE / DATETIME / TIME nodes are written as ISO-8601 strings.
+ * Output is assembled in an array and joined once, so large rowsets do not
+ * pay for repeated string concatenation.
+ * ========================================================================= */
+import DG_SERIALIZE:Core:DataNode;
+
+class JsonWriter
+   method JsonWriter();
+
+   property boolean Pretty;
+   property string Indent;
+
+   method Write(&node As DG_SERIALIZE:Core:DataNode) Returns string;
+   method Quote(&s As string) Returns string;
+
+private
+   method WriteNode(&node As DG_SERIALIZE:Core:DataNode, &out As array of string, &depth As number);
+   method NewLine(&out As array of string, &depth As number);
+   method EscapeChar(&code As number) Returns string;
+   method HexDigit(&n As number) Returns string;
+end-class;
+
+
+method JsonWriter
+   %This.Pretty = False;
+   %This.Indent = "  ";
+end-method;
+
+
+method Write
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   /+ Returns String +/
+   Local array of string &out = CreateArrayRept("", 0);
+   %This.WriteNode(&node, &out, 0);
+   Return &out.Join("");
+end-method;
+
+
+method WriteNode
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &out as Array of String, +/
+   /+ &depth as Number +/
+   Local number &i;
+
+   If &node = Null Then
+      &out.Push("null");
+      Return;
+   End-If;
+
+   Evaluate &node.Kind
+   When "OBJECT"
+      If &node.Count = 0 Then
+         &out.Push("{}");
+      Else
+         &out.Push("{");
+         For &i = 1 To &node.Count
+            If &i > 1 Then
+               &out.Push(",");
+            End-If;
+            %This.NewLine(&out, &depth + 1);
+            &out.Push(%This.Quote(&node.KeyAt(&i)));
+            If %This.Pretty Then
+               &out.Push(": ");
+            Else
+               &out.Push(":");
+            End-If;
+            %This.WriteNode(&node.ValueAt(&i), &out, &depth + 1);
+         End-For;
+         %This.NewLine(&out, &depth);
+         &out.Push("}");
+      End-If;
+      Break;
+
+   When "ARRAY"
+      If &node.Count = 0 Then
+         &out.Push("[]");
+      Else
+         &out.Push("[");
+         For &i = 1 To &node.Count
+            If &i > 1 Then
+               &out.Push(",");
+            End-If;
+            %This.NewLine(&out, &depth + 1);
+            %This.WriteNode(&node.ValueAt(&i), &out, &depth + 1);
+         End-For;
+         %This.NewLine(&out, &depth);
+         &out.Push("]");
+      End-If;
+      Break;
+
+   When "NUMBER"
+      &out.Push(&node.Text);
+      Break;
+
+   When "BOOLEAN"
+      &out.Push(&node.Text);
+      Break;
+
+   When "NULL"
+      &out.Push("null");
+      Break;
+
+   When-Other
+      /* STRING, DATE, DATETIME, TIME */
+      &out.Push(%This.Quote(&node.Text));
+   End-Evaluate;
+end-method;
+
+
+method Quote
+   /+ &s as String +/
+   /+ Returns String +/
+   Local array of string &buf = CreateArrayRept("", 0);
+   Local number &i;
+   Local number &code;
+   Local number &start = 1;
+   Local number &n = Len(&s);
+
+   &buf.Push(Char(34));
+   For &i = 1 To &n
+      &code = Code(Substring(&s, &i, 1));
+      If &code = 34 Or
+            &code = 92 Or
+            &code < 32 Then
+         If &i > &start Then
+            &buf.Push(Substring(&s, &start, &i - &start));
+         End-If;
+         &buf.Push(%This.EscapeChar(&code));
+         &start = &i + 1;
+      End-If;
+   End-For;
+   If &start <= &n Then
+      &buf.Push(Substring(&s, &start, &n - &start + 1));
+   End-If;
+   &buf.Push(Char(34));
+
+   Return &buf.Join("");
+end-method;
+
+
+method NewLine
+   /+ &out as Array of String, +/
+   /+ &depth as Number +/
+   If %This.Pretty Then
+      &out.Push(Char(10) | Rept(%This.Indent, &depth));
+   End-If;
+end-method;
+
+
+method EscapeChar
+   /+ &code as Number +/
+   /+ Returns String +/
+   Local string &bs = Char(92);
+
+   Evaluate &code
+   When 34
+      Return &bs | Char(34);
+   When 92
+      Return &bs | &bs;
+   When 8
+      Return &bs | "b";
+   When 9
+      Return &bs | "t";
+   When 10
+      Return &bs | "n";
+   When 12
+      Return &bs | "f";
+   When 13
+      Return &bs | "r";
+   End-Evaluate;
+
+   /* remaining control characters: \u00XX */
+   Return &bs | "u00" | %This.HexDigit(Int(&code / 16)) | %This.HexDigit(&code - Int(&code / 16) * 16);
+end-method;
+
+
+method HexDigit
+   /+ &n as Number +/
+   /+ Returns String +/
+   Return Substring("0123456789abcdef", &n + 1, 1);
+end-method;
