@@ -350,24 +350,38 @@ method TestClasses
    %This.Section("Application classes");
 
    &addrSchema = create DG_SERIALIZE:Obj:ClassSchema("DG_SERIALIZE:Test:Address");
-   &addrSchema.AddScalar("Street", "STRING").WithKey("street");
-   &addrSchema.AddScalar("City", "STRING").WithKey("city");
-   &addrSchema.AddScalar("PostalCode", "STRING").WithKey("zip");
+   &addrSchema.AddScalar("Street", "STRING");
+   &addrSchema.WithKey("street");
+   &addrSchema.AddScalar("City", "STRING");
+   &addrSchema.WithKey("city");
+   &addrSchema.AddScalar("PostalCode", "STRING");
+   &addrSchema.WithKey("zip");
 
    &empSchema = create DG_SERIALIZE:Obj:ClassSchema("DG_SERIALIZE:Test:Employee");
-   &empSchema.AddScalar("EmplId", "STRING").WithKey("emplid");
-   &empSchema.AddScalar("Name", "STRING").WithKey("name");
-   &empSchema.AddScalar("Salary", "NUMBER").WithKey("salary");
-   &empSchema.AddScalar("Active", "BOOLEAN").WithKey("active");
-   &empSchema.AddScalar("HireDate", "DATE").WithKey("hireDate");
-   &empSchema.AddScalar("LastLogin", "DATETIME").WithKey("lastLogin");
-   &empSchema.AddScalarArray("Skills", "STRING").WithKey("skills");
-   &empSchema.AddObject("HomeAddress", "DG_SERIALIZE:Test:Address").WithKey("home");
-   &empSchema.AddObjectArray("PreviousAddresses", "DG_SERIALIZE:Test:Address").WithKey("previous");
+   &empSchema.AddScalar("EmplId", "STRING");
+   &empSchema.WithKey("emplid");
+   &empSchema.AddScalar("Name", "STRING");
+   &empSchema.WithKey("name");
+   &empSchema.AddScalar("Salary", "NUMBER");
+   &empSchema.WithKey("salary");
+   &empSchema.AddScalar("Active", "BOOLEAN");
+   &empSchema.WithKey("active");
+   &empSchema.AddScalar("HireDate", "DATE");
+   &empSchema.WithKey("hireDate");
+   &empSchema.AddScalar("LastLogin", "DATETIME");
+   &empSchema.WithKey("lastLogin");
+   &empSchema.AddScalarArray("Skills", "STRING");
+   &empSchema.WithKey("skills");
+   &empSchema.AddObject("HomeAddress", "DG_SERIALIZE:Test:Address");
+   &empSchema.WithKey("home");
+   &empSchema.AddObjectArray("PreviousAddresses", "DG_SERIALIZE:Test:Address");
+   &empSchema.WithKey("previous");
    /* Money has no schema: it implements Serializable */
-   &empSchema.AddObject("Bonus", "DG_SERIALIZE:Test:Money").WithKey("bonus");
+   &empSchema.AddObject("Bonus", "DG_SERIALIZE:Test:Money");
+   &empSchema.WithKey("bonus");
 
-   &ser.Register(&addrSchema).Register(&empSchema);
+   &ser.Register(&addrSchema);
+   &ser.Register(&empSchema);
 
    &emp.EmplId = "KU0001";
    &emp.Name = "Ada Lovelace";

@@ -50,14 +50,16 @@ class DataNode
    method AsTime() Returns time;
 
    /* ---- OBJECT members (insertion order is preserved) ---- */
-   method Put(&key As string, &node As DG_SERIALIZE:Core:DataNode) Returns DG_SERIALIZE:Core:DataNode;
-   method PutString(&key As string, &value As string) Returns DG_SERIALIZE:Core:DataNode;
-   method PutNumber(&key As string, &value As number) Returns DG_SERIALIZE:Core:DataNode;
-   method PutBoolean(&key As string, &value As boolean) Returns DG_SERIALIZE:Core:DataNode;
-   method PutDate(&key As string, &value As date) Returns DG_SERIALIZE:Core:DataNode;
-   method PutDateTime(&key As string, &value As datetime) Returns DG_SERIALIZE:Core:DataNode;
-   method PutTime(&key As string, &value As time) Returns DG_SERIALIZE:Core:DataNode;
-   method PutNull(&key As string) Returns DG_SERIALIZE:Core:DataNode;
+   /* Put* and Add* return nothing: PeopleCode does not allow a
+      value-returning method to be called as a statement. */
+   method Put(&key As string, &node As DG_SERIALIZE:Core:DataNode);
+   method PutString(&key As string, &value As string);
+   method PutNumber(&key As string, &value As number);
+   method PutBoolean(&key As string, &value As boolean);
+   method PutDate(&key As string, &value As date);
+   method PutDateTime(&key As string, &value As datetime);
+   method PutTime(&key As string, &value As time);
+   method PutNull(&key As string);
    method HasMember(&key As string) Returns boolean;
    method GetMember(&key As string) Returns DG_SERIALIZE:Core:DataNode;
    method RemoveMember(&key As string);
@@ -72,11 +74,11 @@ class DataNode
    method GetTime(&key As string) Returns time;
 
    /* ---- ARRAY items ---- */
-   method Add(&node As DG_SERIALIZE:Core:DataNode) Returns DG_SERIALIZE:Core:DataNode;
-   method AddString(&value As string) Returns DG_SERIALIZE:Core:DataNode;
-   method AddNumber(&value As number) Returns DG_SERIALIZE:Core:DataNode;
-   method AddBoolean(&value As boolean) Returns DG_SERIALIZE:Core:DataNode;
-   method AddNull() Returns DG_SERIALIZE:Core:DataNode;
+   method Add(&node As DG_SERIALIZE:Core:DataNode);
+   method AddString(&value As string);
+   method AddNumber(&value As number);
+   method AddBoolean(&value As boolean);
+   method AddNull();
 
    /* works for both OBJECT (member value) and ARRAY (item), 1-based */
    method ValueAt(&index As number) Returns DG_SERIALIZE:Core:DataNode;
@@ -387,7 +389,6 @@ end-method;
 method Put
    /+ &key as String, +/
    /+ &node as DG_SERIALIZE:Core:DataNode +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local DG_SERIALIZE:Core:DataNode &value = &node;
    Local number &idx;
 
@@ -403,61 +404,53 @@ method Put
       &keys_.Push(&key);
       &values_.Push(&value);
    End-If;
-   Return %This;
 end-method;
 
 method PutString
    /+ &key as String, +/
    /+ &value as String +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("STRING");
-   Return %This.Put(&key, &n.SetString(&value));
+   %This.Put(&key, &n.SetString(&value));
 end-method;
 
 method PutNumber
    /+ &key as String, +/
    /+ &value as Number +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("NUMBER");
-   Return %This.Put(&key, &n.SetNumber(&value));
+   %This.Put(&key, &n.SetNumber(&value));
 end-method;
 
 method PutBoolean
    /+ &key as String, +/
    /+ &value as Boolean +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("BOOLEAN");
-   Return %This.Put(&key, &n.SetBoolean(&value));
+   %This.Put(&key, &n.SetBoolean(&value));
 end-method;
 
 method PutDate
    /+ &key as String, +/
    /+ &value as Date +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("DATE");
-   Return %This.Put(&key, &n.SetDate(&value));
+   %This.Put(&key, &n.SetDate(&value));
 end-method;
 
 method PutDateTime
    /+ &key as String, +/
    /+ &value as DateTime +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("DATETIME");
-   Return %This.Put(&key, &n.SetDateTime(&value));
+   %This.Put(&key, &n.SetDateTime(&value));
 end-method;
 
 method PutTime
    /+ &key as String, +/
    /+ &value as Time +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("TIME");
-   Return %This.Put(&key, &n.SetTime(&value));
+   %This.Put(&key, &n.SetTime(&value));
 end-method;
 
 method PutNull
    /+ &key as String +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
-   Return %This.Put(&key, create DG_SERIALIZE:Core:DataNode("NULL"));
+   %This.Put(&key, create DG_SERIALIZE:Core:DataNode("NULL"));
 end-method;
 
 method HasMember
@@ -587,40 +580,34 @@ end-method;
 
 method Add
    /+ &node as DG_SERIALIZE:Core:DataNode +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    %This.RequireKind("ARRAY", "Add");
    If &node = Null Then
       &values_.Push(create DG_SERIALIZE:Core:DataNode("NULL"));
    Else
       &values_.Push(&node);
    End-If;
-   Return %This;
 end-method;
 
 method AddString
    /+ &value as String +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("STRING");
-   Return %This.Add(&n.SetString(&value));
+   %This.Add(&n.SetString(&value));
 end-method;
 
 method AddNumber
    /+ &value as Number +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("NUMBER");
-   Return %This.Add(&n.SetNumber(&value));
+   %This.Add(&n.SetNumber(&value));
 end-method;
 
 method AddBoolean
    /+ &value as Boolean +/
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("BOOLEAN");
-   Return %This.Add(&n.SetBoolean(&value));
+   %This.Add(&n.SetBoolean(&value));
 end-method;
 
 method AddNull
-   /+ Returns DG_SERIALIZE:Core:DataNode +/
-   Return %This.Add(create DG_SERIALIZE:Core:DataNode("NULL"));
+   %This.Add(create DG_SERIALIZE:Core:DataNode("NULL"));
 end-method;
 
 method ValueAt

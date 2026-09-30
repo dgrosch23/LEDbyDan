@@ -90,7 +90,9 @@ End-For;
 
 /* build a document */
 Local DG_SERIALIZE:Core:DataNode &out = create DG_SERIALIZE:Core:DataNode("OBJECT");
-&out.PutString("status", "OK").PutNumber("count", 3).PutDate("asOf", %Date);
+&out.PutString("status", "OK");
+&out.PutNumber("count", 3);
+&out.PutDate("asOf", %Date);
 
 &ser.JsonOut.Pretty = True;
 Local string &json = &ser.ToJson(&out);
@@ -177,11 +179,14 @@ with no arguments.
 import DG_SERIALIZE:Obj:ClassSchema;
 
 Local DG_SERIALIZE:Obj:ClassSchema &addr = create DG_SERIALIZE:Obj:ClassSchema("MY_PKG:Model:Address");
-&addr.AddScalar("Street", "STRING").WithKey("street");
-&addr.AddScalar("PostalCode", "STRING").WithKey("zip");
+&addr.AddScalar("Street", "STRING");
+&addr.WithKey("street");                   /* renames the member just added */
+&addr.AddScalar("PostalCode", "STRING");
+&addr.WithKey("zip");
 
 Local DG_SERIALIZE:Obj:ClassSchema &emp = create DG_SERIALIZE:Obj:ClassSchema("MY_PKG:Model:Employee");
-&emp.AddScalar("EmplId", "STRING").WithKey("emplid");
+&emp.AddScalar("EmplId", "STRING");
+&emp.WithKey("emplid");
 &emp.AddScalar("HireDate", "DATE");
 &emp.AddScalar("Salary", "NUMBER");
 &emp.AddScalarArray("Skills", "STRING");
@@ -189,7 +194,8 @@ Local DG_SERIALIZE:Obj:ClassSchema &emp = create DG_SERIALIZE:Obj:ClassSchema("M
 &emp.AddObjectArray("Dependents", "MY_PKG:Model:Person");
 &emp.AddRecord("JobRow", "JOB");                  /* a Record-typed property */
 
-&ser.Register(&addr).Register(&emp);
+&ser.Register(&addr);
+&ser.Register(&emp);
 
 Local string &json = &ser.ObjectToJson(&employee, "MY_PKG:Model:Employee");
 Local MY_PKG:Model:Employee &copy = &ser.JsonToObject(&json, "MY_PKG:Model:Employee");
@@ -206,6 +212,11 @@ inside a schema-mapped class. See `Test:Money`, which serializes to
 `"1250.5 EUR"`.
 
 ## Limitations and notes
+
+* Methods that change an object (`Put*`, `Add*`, `WithKey`, `Register`)
+  return nothing, so call each one as its own statement. PeopleCode doesn't
+  allow a method that returns a value to be called as a statement, which
+  rules out fluent chaining.
 
 * This code hasn't been compiled against a live PeopleTools environment
   yet. Run `Test:SelfTest` after importing it. The APIs it relies on are
