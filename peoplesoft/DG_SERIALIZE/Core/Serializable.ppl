@@ -1,0 +1,20 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Core:Serializable
+ *
+ * Implement this interface on your own application classes when you want
+ * full control over how they are serialized (custom shapes, computed
+ * values, private state).
+ *
+ * The ClassMapper uses it automatically for any class that has no
+ * ClassSchema registered. Classes you cannot change (delivered/established
+ * classes) should be described with a ClassSchema instead.
+ *
+ * Implementing classes need a constructor that takes no arguments so they
+ * can be created during deserialization.
+ * ========================================================================= */
+import DG_SERIALIZE:Core:DataNode;
+
+interface Serializable
+   method ToNode() Returns DG_SERIALIZE:Core:DataNode;
+   method FromNode(&node As DG_SERIALIZE:Core:DataNode);
+end-interface;

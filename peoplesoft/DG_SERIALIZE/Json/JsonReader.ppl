@@ -1,0 +1,363 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Json:JsonReader
+ *
+ * Strict RFC 8259 JSON parser written in plain PeopleCode (no dependency on
+ * the delivered JsonParser, so it behaves the same on every 8.5x release).
+ *
+ *    Local DG_SERIALIZE:Json:JsonReader &r = create DG_SERIALIZE:Json:JsonReader();
+ *    Local DG_SERIALIZE:Core:DataNode &n = &r.Read(&jsonText);
+ *
+ * Numbers keep their original text (no precision loss); exponent notation
+ * is expanded. Strings containing ISO dates stay STRING nodes - use the
+ * AsDate()/AsDateTime() getters, or let the Record/Class mappers coerce.
+ * ========================================================================= */
+import DG_SERIALIZE:Core:DataNode;
+
+class JsonReader
+   method JsonReader();
+   method Read(&json As string) Returns DG_SERIALIZE:Core:DataNode;
+
+private
+   instance string &src;
+   instance number &pos;
+   instance number &len;
+   instance string &QUOTE;
+   instance string &BSLASH;
+
+   method ReadValue() Returns DG_SERIALIZE:Core:DataNode;
+   method ReadObject() Returns DG_SERIALIZE:Core:DataNode;
+   method ReadArray() Returns DG_SERIALIZE:Core:DataNode;
+   method ReadString() Returns string;
+   method ReadNumber() Returns DG_SERIALIZE:Core:DataNode;
+   method ReadLiteral(&word As string);
+   method SkipWhitespace();
+   method Peek() Returns string;
+   method Expect(&ch As string);
+   method HexValue(&hex As string) Returns number;
+   method Fail(&message As string);
+end-class;
+
+
+method JsonReader
+   &QUOTE = Char(34);
+   &BSLASH = Char(92);
+end-method;
+
+
+method Read
+   /+ &json as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &result;
+
+   &src = &json;
+   &pos = 1;
+   &len = Len(&json);
+
+   /* skip a UTF-8 byte-order mark if one survived decoding */
+   If &len > 0 Then
+      If Code(Substring(&src, 1, 1)) = 65279 Then
+         &pos = 2;
+      End-If;
+   End-If;
+
+   %This.SkipWhitespace();
+   If &pos > &len Then
+      %This.Fail("input is empty");
+   End-If;
+
+   &result = %This.ReadValue();
+
+   %This.SkipWhitespace();
+   If &pos <= &len Then
+      %This.Fail("unexpected trailing content");
+   End-If;
+   Return &result;
+end-method;
+
+
+method ReadValue
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local string &c;
+   Local DG_SERIALIZE:Core:DataNode &n;
+
+   %This.SkipWhitespace();
+   If &pos > &len Then
+      %This.Fail("unexpected end of input");
+   End-If;
+
+   &c = Substring(&src, &pos, 1);
+
+   If &c = "{" Then
+      Return %This.ReadObject();
+   End-If;
+   If &c = "[" Then
+      Return %This.ReadArray();
+   End-If;
+   If &c = &QUOTE Then
+      &n = create DG_SERIALIZE:Core:DataNode("STRING");
+      Return &n.SetString(%This.ReadString());
+   End-If;
+   If &c = "t" Then
+      %This.ReadLiteral("true");
+      &n = create DG_SERIALIZE:Core:DataNode("BOOLEAN");
+      Return &n.SetBoolean( True);
+   End-If;
+   If &c = "f" Then
+      %This.ReadLiteral("false");
+      &n = create DG_SERIALIZE:Core:DataNode("BOOLEAN");
+      Return &n.SetBoolean( False);
+   End-If;
+   If &c = "n" Then
+      %This.ReadLiteral("null");
+      Return create DG_SERIALIZE:Core:DataNode("NULL");
+   End-If;
+   If Find(&c, "-0123456789") > 0 Then
+      Return %This.ReadNumber();
+   End-If;
+
+   %This.Fail("unexpected character '" | &c | "'");
+   Return Null;
+end-method;
+
+
+method ReadObject
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &obj = create DG_SERIALIZE:Core:DataNode("OBJECT");
+   Local string &key;
+   Local string &c;
+
+   &pos = &pos + 1; /* consume '{' */
+   %This.SkipWhitespace();
+   If %This.Peek() = "}" Then
+      &pos = &pos + 1;
+      Return &obj;
+   End-If;
+
+   While True
+      %This.SkipWhitespace();
+      If %This.Peek() <> &QUOTE Then
+         %This.Fail("expected a quoted member name");
+      End-If;
+      &key = %This.ReadString();
+
+      %This.SkipWhitespace();
+      %This.Expect(":");
+      &obj.Put(&key, %This.ReadValue());
+
+      %This.SkipWhitespace();
+      &c = %This.Peek();
+      If &c = "}" Then
+         &pos = &pos + 1;
+         Return &obj;
+      End-If;
+      If &c <> "," Then
+         %This.Fail("expected ',' or '}' in object");
+      End-If;
+      &pos = &pos + 1;
+   End-While;
+
+   Return &obj;
+end-method;
+
+
+method ReadArray
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &arr = create DG_SERIALIZE:Core:DataNode("ARRAY");
+   Local string &c;
+
+   &pos = &pos + 1; /* consume '[' */
+   %This.SkipWhitespace();
+   If %This.Peek() = "]" Then
+      &pos = &pos + 1;
+      Return &arr;
+   End-If;
+
+   While True
+      &arr.Add(%This.ReadValue());
+
+      %This.SkipWhitespace();
+      &c = %This.Peek();
+      If &c = "]" Then
+         &pos = &pos + 1;
+         Return &arr;
+      End-If;
+      If &c <> "," Then
+         %This.Fail("expected ',' or ']' in array");
+      End-If;
+      &pos = &pos + 1;
+   End-While;
+
+   Return &arr;
+end-method;
+
+
+method ReadString
+   /+ Returns String +/
+   /* Scans run-by-run using Find() rather than char-by-char for speed. */
+   Local array of string &buf = CreateArrayRept("", 0);
+   Local number &q;
+   Local number &b;
+   Local number &next;
+   Local string &e;
+
+   &pos = &pos + 1; /* consume opening quote */
+
+   While True
+      &q = Find(&QUOTE, &src, &pos);
+      If &q = 0 Then
+         %This.Fail("unterminated string");
+      End-If;
+
+      /* only look for a backslash inside this run, never past the quote;
+         scanning the rest of the document would make parsing O(n^2) */
+      &b = 0;
+      If &q > &pos Then
+         &b = Find(&BSLASH, Substring(&src, &pos, &q - &pos));
+         If &b > 0 Then
+            &b = &pos + &b - 1;
+         End-If;
+      End-If;
+      If &b = 0 Then
+         /* no escape before the closing quote */
+         If &q > &pos Then
+            &buf.Push(Substring(&src, &pos, &q - &pos));
+         End-If;
+         &pos = &q + 1;
+         Return &buf.Join("");
+      End-If;
+
+      /* copy the run before the escape, then decode it */
+      If &b > &pos Then
+         &buf.Push(Substring(&src, &pos, &b - &pos));
+      End-If;
+      If &b + 1 > &len Then
+         %This.Fail("unterminated escape sequence");
+      End-If;
+
+      &e = Substring(&src, &b + 1, 1);
+      &next = &b + 2;
+
+      Evaluate &e
+      When "b"
+         &buf.Push(Char(8));
+         Break;
+      When "f"
+         &buf.Push(Char(12));
+         Break;
+      When "n"
+         &buf.Push(Char(10));
+         Break;
+      When "r"
+         &buf.Push(Char(13));
+         Break;
+      When "t"
+         &buf.Push(Char(9));
+         Break;
+      When "u"
+         If &b + 5 > &len Then
+            %This.Fail("truncated \u escape");
+         End-If;
+         &buf.Push(Char(%This.HexValue(Substring(&src, &b + 2, 4))));
+         &next = &b + 6;
+         Break;
+      When-Other
+         /* \"  \\  \/  (and any other char, leniently, as itself) */
+         &buf.Push(&e);
+      End-Evaluate;
+
+      &pos = &next;
+   End-While;
+
+   Return "";
+end-method;
+
+
+method ReadNumber
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local number &start = &pos;
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("NUMBER");
+
+   While &pos <= &len
+      If Find(Substring(&src, &pos, 1), "+-0123456789.eE") = 0 Then
+         Break;
+      End-If;
+      &pos = &pos + 1;
+   End-While;
+
+   try
+      Return &n.SetNumberText(Substring(&src, &start, &pos - &start));
+   catch Exception &ex
+      &pos = &start;
+      %This.Fail("invalid number");
+   end-try;
+   Return &n;
+end-method;
+
+
+method ReadLiteral
+   /+ &word as String +/
+   If Substring(&src, &pos, Len(&word)) <> &word Then
+      %This.Fail("expected '" | &word | "'");
+   End-If;
+   &pos = &pos + Len(&word);
+end-method;
+
+
+method SkipWhitespace
+   Local number &code;
+   While &pos <= &len
+      &code = Code(Substring(&src, &pos, 1));
+      If &code <> 32 And
+            &code <> 9 And
+            &code <> 10 And
+            &code <> 13 Then
+         Break;
+      End-If;
+      &pos = &pos + 1;
+   End-While;
+end-method;
+
+
+method Peek
+   /+ Returns String +/
+   If &pos > &len Then
+      Return "";
+   End-If;
+   Return Substring(&src, &pos, 1);
+end-method;
+
+
+method Expect
+   /+ &ch as String +/
+   If %This.Peek() <> &ch Then
+      %This.Fail("expected '" | &ch | "'");
+   End-If;
+   &pos = &pos + 1;
+end-method;
+
+
+method HexValue
+   /+ &hex as String +/
+   /+ Returns Number +/
+   Local number &i;
+   Local number &digit;
+   Local number &result = 0;
+
+   If Len(&hex) <> 4 Then
+      %This.Fail("invalid \u escape");
+   End-If;
+   For &i = 1 To 4
+      &digit = Find(Upper(Substring(&hex, &i, 1)), "0123456789ABCDEF");
+      If &digit = 0 Then
+         %This.Fail("invalid \u escape '" | &hex | "'");
+      End-If;
+      &result = &result * 16 + (&digit - 1);
+   End-For;
+   Return &result;
+end-method;
+
+
+method Fail
+   /+ &message as String +/
+   throw CreateException(0, 0, "DG_SERIALIZE:Json:JsonReader - JSON parse error at position %1: %2", &pos, &message);
+end-method;

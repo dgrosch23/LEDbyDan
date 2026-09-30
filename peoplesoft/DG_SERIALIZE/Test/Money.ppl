@@ -1,0 +1,45 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Test:Money
+ *
+ * Sample class that controls its own format by implementing
+ * DG_SERIALIZE:Core:Serializable. It serializes to a compact string
+ * such as "1250.5 USD" instead of an object.
+ * ========================================================================= */
+import DG_SERIALIZE:Core:DataNode;
+import DG_SERIALIZE:Core:Serializable;
+
+class Money implements DG_SERIALIZE:Core:Serializable
+   method Money();
+
+   property number Amount;
+   property string Currency;
+
+   method ToNode() Returns DG_SERIALIZE:Core:DataNode;
+   method FromNode(&node As DG_SERIALIZE:Core:DataNode);
+end-class;
+
+
+method Money
+   %This.Amount = 0;
+   %This.Currency = "USD";
+end-method;
+
+
+method ToNode
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   /+ Extends/implements DG_SERIALIZE:Core:Serializable.ToNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("STRING");
+   Return &n.SetString(String(%This.Amount) | " " | %This.Currency);
+end-method;
+
+
+method FromNode
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   /+ Extends/implements DG_SERIALIZE:Core:Serializable.FromNode +/
+   Local array of string &parts = Split(LTrim(RTrim(&node.AsString())), " ");
+
+   %This.Amount = Value(&parts [1]);
+   If &parts.Len > 1 Then
+      %This.Currency = &parts [2];
+   End-If;
+end-method;

@@ -1,0 +1,577 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Db:RecordMapper
+ *
+ * Maps PeopleSoft database objects to and from DataNode trees:
+ *
+ *    Record  <->  OBJECT   { "EMPLID":"KU0001", "EFFDT":"2024-01-01", ... }
+ *    Rowset  <->  ARRAY    [ {row}, {row}, ... ]  child rowsets are nested
+ *                          under their record name inside each row
+ *    SQL     ->   ARRAY    QueryToNode("PSXLATITEM", "WHERE FIELDNAME=:1", binds)
+ *    ARRAY/OBJECT -> table SaveToDatabase(node, "MY_REC", "UPSERT")
+ *
+ * Field types are honoured: NUMBER/SIGNED -> number, DATE/DATETIME/TIME ->
+ * ISO-8601, CHAR/LONGCHAR -> string. IMAGE/ATTACHMENT fields are skipped.
+ *
+ * KeyStyle controls member names:
+ *    "FIELD"  EMPL_RCD   (default, the PeopleSoft field name)
+ *    "LOWER"  empl_rcd
+ *    "CAMEL"  emplRcd
+ * Reading is tolerant: EMPL_RCD, empl_rcd, emplRcd and EmplRcd all match
+ * field EMPL_RCD whatever KeyStyle is set to.
+ * ========================================================================= */
+import DG_SERIALIZE:Core:DataNode;
+
+class RecordMapper
+   method RecordMapper();
+
+   property string KeyStyle;
+   property boolean IncludeEmpty;
+   property boolean IncludeChildren;
+   property boolean ClearRowsetFirst;
+
+   method RecordToNode(&rec As Record) Returns DG_SERIALIZE:Core:DataNode;
+   method NodeToRecord(&node As DG_SERIALIZE:Core:DataNode, &rec As Record);
+
+   method RowsetToNode(&rs As Rowset) Returns DG_SERIALIZE:Core:DataNode;
+   method NodeToRowset(&node As DG_SERIALIZE:Core:DataNode, &rs As Rowset);
+
+   method QueryToNode(&recName As string, &whereClause As string, &binds As array of any) Returns DG_SERIALIZE:Core:DataNode;
+   method SaveToDatabase(&node As DG_SERIALIZE:Core:DataNode, &recName As string, &mode As string) Returns number;
+
+   method KeyFor(&fieldName As string) Returns string;
+
+private
+   method FieldToNode(&fld As Field) Returns DG_SERIALIZE:Core:DataNode;
+   method NodeToField(&node As DG_SERIALIZE:Core:DataNode, &fld As Field);
+   method FieldCategory(&fld As Field) Returns string;
+   method FindMember(&node As DG_SERIALIZE:Core:DataNode, &name As string) Returns DG_SERIALIZE:Core:DataNode;
+   method PrimaryRecord(&rs As Rowset, &row As Row) Returns Record;
+   method IsBlankRecord(&rec As Record) Returns boolean;
+   method DescribeKeys(&rec As Record) Returns string;
+   method SaveOne(&node As DG_SERIALIZE:Core:DataNode, &recName As string, &mode As string);
+   method RequireRecordName(&name As string);
+   method Fail(&message As string);
+end-class;
+
+
+method RecordMapper
+   %This.KeyStyle = "FIELD";
+   %This.IncludeEmpty = True;
+   %This.IncludeChildren = True;
+   %This.ClearRowsetFirst = True;
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* Record                                                                   */
+/* ------------------------------------------------------------------------ */
+
+method RecordToNode
+   /+ &rec as Record +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &obj = create DG_SERIALIZE:Core:DataNode("OBJECT");
+   Local DG_SERIALIZE:Core:DataNode &n;
+   Local Field &fld;
+   Local number &i;
+   Local boolean &empty;
+
+   For &i = 1 To &rec.FieldCount
+      &fld = &rec.GetField(&i);
+      &n = %This.FieldToNode(&fld);
+      If &n <> Null Then
+         &empty = &n.IsNull();
+         If &n.Kind = "STRING" Then
+            &empty = (Len(&n.Text) = 0);
+         End-If;
+         If %This.IncludeEmpty Or
+               Not &empty Then
+            &obj.Put(%This.KeyFor(&fld.Name), &n);
+         End-If;
+      End-If;
+   End-For;
+   Return &obj;
+end-method;
+
+
+method NodeToRecord
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &rec as Record +/
+   /* Only fields present in &node are touched; others keep their value. */
+   Local DG_SERIALIZE:Core:DataNode &member;
+   Local Field &fld;
+   Local number &i;
+
+   If &node = Null Then
+      Return;
+   End-If;
+   If Not &node.IsObject() Then
+      %This.Fail("a Record can only be populated from an OBJECT node, got " | &node.Kind);
+   End-If;
+
+   For &i = 1 To &rec.FieldCount
+      &fld = &rec.GetField(&i);
+      &member = %This.FindMember(&node, &fld.Name);
+      If &member <> Null Then
+         %This.NodeToField(&member, &fld);
+      End-If;
+   End-For;
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* Rowset                                                                   */
+/* ------------------------------------------------------------------------ */
+
+method RowsetToNode
+   /+ &rs as Rowset +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &arr = create DG_SERIALIZE:Core:DataNode("ARRAY");
+   Local DG_SERIALIZE:Core:DataNode &item;
+   Local Row &row;
+   Local Record &rec;
+   Local Rowset &child;
+   Local number &i;
+   Local number &c;
+
+   For &i = 1 To &rs.ActiveRowCount
+      &row = &rs.GetRow(&i);
+      &rec = %This.PrimaryRecord(&rs, &row);
+
+      /* an "empty" rowset still has one blank row - emit [] for it */
+      If &rs.ActiveRowCount = 1 And
+            %This.IsBlankRecord(&rec) Then
+         Break;
+      End-If;
+
+      &item = %This.RecordToNode(&rec);
+      If %This.IncludeChildren Then
+         For &c = 1 To &row.ChildCount
+            &child = &row.GetRowset(&c);
+            &item.Put(%This.KeyFor(&child.DBRecordName), %This.RowsetToNode(&child));
+         End-For;
+      End-If;
+      &arr.Add(&item);
+   End-For;
+   Return &arr;
+end-method;
+
+
+method NodeToRowset
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &rs as Rowset +/
+   /* &rs must already have its shape (child rowsets), e.g.
+      CreateRowset(Record.PARENT, CreateRowset(Record.CHILD)). Rows are
+      matched positionally; child arrays are found by child record name. */
+   Local DG_SERIALIZE:Core:DataNode &items = &node;
+   Local DG_SERIALIZE:Core:DataNode &item;
+   Local DG_SERIALIZE:Core:DataNode &childNode;
+   Local Row &row;
+   Local Rowset &child;
+   Local number &i;
+   Local number &c;
+
+   If &node = Null Then
+      Return;
+   End-If;
+   If &node.IsNull() Then
+      Return;
+   End-If;
+   If &node.IsObject() Then
+      /* a single object is accepted as a one-row rowset */
+      &items = create DG_SERIALIZE:Core:DataNode("ARRAY");
+      &items.Add(&node);
+   End-If;
+   If Not &items.IsArray() Then
+      %This.Fail("a Rowset can only be populated from an ARRAY or OBJECT node, got " | &node.Kind);
+   End-If;
+
+   If %This.ClearRowsetFirst Then
+      &rs.Flush();
+   End-If;
+
+   For &i = 1 To &items.Count
+      &item = &items.ValueAt(&i);
+      If &i > &rs.ActiveRowCount Then
+         &rs.InsertRow(&rs.ActiveRowCount);
+      End-If;
+      &row = &rs.GetRow(&i);
+      %This.NodeToRecord(&item, %This.PrimaryRecord(&rs, &row));
+
+      For &c = 1 To &row.ChildCount
+         &child = &row.GetRowset(&c);
+         &childNode = %This.FindMember(&item, &child.DBRecordName);
+         If &childNode <> Null Then
+            %This.NodeToRowset(&childNode, &child);
+         End-If;
+      End-For;
+   End-For;
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* SQL                                                                      */
+/* ------------------------------------------------------------------------ */
+
+method QueryToNode
+   /+ &recName as String, +/
+   /+ &whereClause as String, +/
+   /+ &binds as Array of Any +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   /* &whereClause is appended to "%SelectAll(recname)" and may contain
+      :1, :2 ... bind placeholders plus ORDER BY. Always pass user input
+      through &binds, never by concatenating it into &whereClause. */
+   Local DG_SERIALIZE:Core:DataNode &arr = create DG_SERIALIZE:Core:DataNode("ARRAY");
+   Local Record &rec;
+   Local SQL &sql;
+   Local string &stmt;
+
+   %This.RequireRecordName(&recName);
+   &rec = CreateRecord(@("Record." | Upper(&recName)));
+   &stmt = "%SelectAll(" | Upper(&recName) | ") " | &whereClause;
+
+   If &binds = Null Then
+      &sql = CreateSQL(&stmt);
+   Else
+      If &binds.Len = 0 Then
+         &sql = CreateSQL(&stmt);
+      Else
+         &sql = CreateSQL(&stmt, &binds);
+      End-If;
+   End-If;
+
+   While &sql.Fetch(&rec)
+      &arr.Add(%This.RecordToNode(&rec));
+   End-While;
+   &sql.Close();
+
+   Return &arr;
+end-method;
+
+
+method SaveToDatabase
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &recName as String, +/
+   /+ &mode as String +/
+   /+ Returns Number +/
+   /* &mode: INSERT | UPDATE | UPSERT | DELETE. Accepts one OBJECT or an
+      ARRAY of them. Returns the number of rows written. Call from a
+      context where database updates are allowed (SavePostChange, App
+      Engine, IB handler, ...). Child arrays inside rows are ignored. */
+   Local number &i;
+   Local string &m = Upper(&mode);
+
+   %This.RequireRecordName(&recName);
+   If &m <> "INSERT" And
+         &m <> "UPDATE" And
+         &m <> "UPSERT" And
+         &m <> "DELETE" Then
+      %This.Fail("unknown save mode '" | &mode | "' (use INSERT, UPDATE, UPSERT or DELETE)");
+   End-If;
+
+   If &node.IsArray() Then
+      For &i = 1 To &node.Count
+         %This.SaveOne(&node.ValueAt(&i), &recName, &m);
+      End-For;
+      Return &node.Count;
+   End-If;
+
+   %This.SaveOne(&node, &recName, &m);
+   Return 1;
+end-method;
+
+
+method SaveOne
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &recName as String, +/
+   /+ &mode as String +/
+   Local Record &rec = CreateRecord(@("Record." | Upper(&recName)));
+   Local Record &probe;
+   Local boolean &ok;
+
+   %This.NodeToRecord(&node, &rec);
+
+   Evaluate &mode
+   When "INSERT"
+      &ok = &rec.Insert();
+      Break;
+   When "UPDATE"
+      &ok = &rec.Update();
+      Break;
+   When "DELETE"
+      &ok = &rec.Delete();
+      Break;
+   When "UPSERT"
+      &probe = CreateRecord(@("Record." | Upper(&recName)));
+      &rec.CopyFieldsTo(&probe);
+      If &probe.SelectByKey() Then
+         &ok = &rec.Update();
+      Else
+         &ok = &rec.Insert();
+      End-If;
+      Break;
+   End-Evaluate;
+
+   If Not &ok Then
+      %This.Fail(&mode | " into " | &recName | " failed for key " | %This.DescribeKeys(&rec));
+   End-If;
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* Naming                                                                   */
+/* ------------------------------------------------------------------------ */
+
+method KeyFor
+   /+ &fieldName as String +/
+   /+ Returns String +/
+   Local array of string &parts;
+   Local string &out;
+   Local string &p;
+   Local number &i;
+
+   Evaluate Upper(%This.KeyStyle)
+   When "LOWER"
+      Return Lower(&fieldName);
+   When "CAMEL"
+      &parts = Split(Lower(&fieldName), "_");
+      &out = &parts [1];
+      For &i = 2 To &parts.Len
+         &p = &parts [&i];
+         If Len(&p) > 0 Then
+            &out = &out | Upper(Substring(&p, 1, 1)) | Substring(&p, 2, Len(&p) - 1);
+         End-If;
+      End-For;
+      Return &out;
+   End-Evaluate;
+
+   Return &fieldName;
+end-method;
+
+
+method FindMember
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &name as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local string &key = %This.KeyFor(&name);
+   Local string &norm;
+   Local number &i;
+
+   If &node.HasMember(&key) Then
+      Return &node.GetMember(&key);
+   End-If;
+   If &node.HasMember(&name) Then
+      Return &node.GetMember(&name);
+   End-If;
+
+   /* tolerant match: ignore case and underscores (emplRcd == EMPL_RCD) */
+   &norm = Upper(Substitute(&name, "_", ""));
+   For &i = 1 To &node.Count
+      If Upper(Substitute(&node.KeyAt(&i), "_", "")) = &norm Then
+         Return &node.ValueAt(&i);
+      End-If;
+   End-For;
+   Return Null;
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* Field conversion                                                         */
+/* ------------------------------------------------------------------------ */
+
+method FieldCategory
+   /+ &fld as Field +/
+   /+ Returns String +/
+   /* normalises Field.Type into NUMBER, DATE, DATETIME, TIME, STRING, SKIP */
+   Local string &t = Upper(&fld.Type);
+
+   If Find("IMAGE", &t) > 0 Or
+         Find("ATTACH", &t) > 0 Then
+      Return "SKIP";
+   End-If;
+   If Find("DATETIME", &t) > 0 Or
+         Find("DTTM", &t) > 0 Then
+      Return "DATETIME";
+   End-If;
+   If Find("DATE", &t) > 0 Then
+      Return "DATE";
+   End-If;
+   If Find("TIME", &t) > 0 Then
+      Return "TIME";
+   End-If;
+   If Find("NUM", &t) > 0 Or
+         Find("NBR", &t) > 0 Then
+      Return "NUMBER";
+   End-If;
+   Return "STRING";
+end-method;
+
+
+method FieldToNode
+   /+ &fld as Field +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("NULL");
+
+   Evaluate %This.FieldCategory(&fld)
+   When "SKIP"
+      Return Null;
+   When "NUMBER"
+      Return &n.SetNumber(&fld.Value);
+   When "DATE"
+      If None(&fld.Value) Then
+         Return &n;
+      End-If;
+      Return &n.SetDate(&fld.Value);
+   When "DATETIME"
+      If None(&fld.Value) Then
+         Return &n;
+      End-If;
+      Return &n.SetDateTime(&fld.Value);
+   When "TIME"
+      If None(&fld.Value) Then
+         Return &n;
+      End-If;
+      Return &n.SetTime(&fld.Value);
+   End-Evaluate;
+
+   /* CHAR / LONGCHAR: PeopleSoft stores blanks as a single space */
+   Return &n.SetString(RTrim(&fld.Value));
+end-method;
+
+
+method NodeToField
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &fld as Field +/
+   Local date &noDate;
+   Local datetime &noDateTime;
+   Local time &noTime;
+   Local string &cat = %This.FieldCategory(&fld);
+
+   If &cat = "SKIP" Then
+      Return;
+   End-If;
+
+   If &node.IsNull() Or
+         &node.IsObject() Or
+         &node.IsArray() Then
+      /* null (or a structure where a scalar was expected) blanks the field */
+      Evaluate &cat
+      When "NUMBER"
+         &fld.Value = 0;
+         Break;
+      When "DATE"
+         &fld.Value = &noDate;
+         Break;
+      When "DATETIME"
+         &fld.Value = &noDateTime;
+         Break;
+      When "TIME"
+         &fld.Value = &noTime;
+         Break;
+      When-Other
+         &fld.Value = " ";
+      End-Evaluate;
+      Return;
+   End-If;
+
+   Evaluate &cat
+   When "NUMBER"
+      &fld.Value = &node.AsNumber();
+      Break;
+   When "DATE"
+      &fld.Value = &node.AsDate();
+      Break;
+   When "DATETIME"
+      &fld.Value = &node.AsDateTime();
+      Break;
+   When "TIME"
+      &fld.Value = &node.AsTime();
+      Break;
+   When-Other
+      &fld.Value = &node.AsString();
+   End-Evaluate;
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* Helpers                                                                  */
+/* ------------------------------------------------------------------------ */
+
+method PrimaryRecord
+   /+ &rs as Rowset, +/
+   /+ &row as Row +/
+   /+ Returns Record +/
+   If Len(&rs.DBRecordName) > 0 Then
+      Return &row.GetRecord(@("Record." | &rs.DBRecordName));
+   End-If;
+   Return &row.GetRecord(1);
+end-method;
+
+
+method IsBlankRecord
+   /+ &rec as Record +/
+   /+ Returns Boolean +/
+   Local number &i;
+   Local Field &fld;
+   Local boolean &hasKeys = False;
+
+   For &i = 1 To &rec.FieldCount
+      &fld = &rec.GetField(&i);
+      If &fld.IsKey Then
+         &hasKeys = True;
+         If All(&fld.Value) Then
+            Return False;
+         End-If;
+      End-If;
+   End-For;
+   If &hasKeys Then
+      Return True;
+   End-If;
+
+   /* keyless record: blank only if every field is empty */
+   For &i = 1 To &rec.FieldCount
+      If All(&rec.GetField(&i).Value) Then
+         Return False;
+      End-If;
+   End-For;
+   Return True;
+end-method;
+
+
+method DescribeKeys
+   /+ &rec as Record +/
+   /+ Returns String +/
+   Local array of string &parts = CreateArrayRept("", 0);
+   Local Field &fld;
+   Local number &i;
+
+   For &i = 1 To &rec.FieldCount
+      &fld = &rec.GetField(&i);
+      If &fld.IsKey Then
+         &parts.Push(&fld.Name | "=" | String(&fld.Value));
+      End-If;
+   End-For;
+   Return "[" | &parts.Join(", ") | "]";
+end-method;
+
+
+method RequireRecordName
+   /+ &name as String +/
+   /* guards the dynamic @"Record." reference and the %SelectAll text */
+   Local number &i;
+
+   If Len(&name) = 0 Or
+         Len(&name) > 15 Then
+      %This.Fail("invalid record name '" | &name | "'");
+   End-If;
+   For &i = 1 To Len(&name)
+      If Find(Upper(Substring(&name, &i, 1)), "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") = 0 Then
+         %This.Fail("invalid record name '" | &name | "'");
+      End-If;
+   End-For;
+end-method;
+
+
+method Fail
+   /+ &message as String +/
+   throw CreateException(0, 0, "DG_SERIALIZE:Db:RecordMapper - %1", &message);
+end-method;

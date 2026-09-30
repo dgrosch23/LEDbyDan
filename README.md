@@ -125,3 +125,7 @@ Notes for deployment on IIS:
 - **Network-drive friendly**: the vacation list is cached briefly in memory
   so a slow share isn't re-scanned on every page view, and videos are served
   with HTTP range support so seeking doesn't re-download the whole file.
+
+## PeopleSoft serialization package
+
+[`peoplesoft/`](peoplesoft/README.md) holds `DG_SERIALIZE`, a separate PeopleCode application package. It converts data between JSON, XML, Records/Rowsets/SQL and application classes.

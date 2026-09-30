@@ -1,0 +1,183 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Xml:XmlReader
+ *
+ * Parses XML (via the delivered XmlDoc API) into a DataNode tree.
+ *
+ * With dg_type hints (as produced by XmlWriter) every type is restored
+ * exactly. Without hints, the structure is inferred:
+ *    - an element with child elements        -> OBJECT
+ *    - child elements with a repeated name   -> ARRAY under that name
+ *    - an element with only text             -> STRING
+ *
+ * The root element's name is not part of the result; it is available
+ * afterwards in LastRootName. Attributes other than the dg_* hint
+ * attributes are not mapped.
+ * ========================================================================= */
+import DG_SERIALIZE:Core:DataNode;
+
+class XmlReader
+   method XmlReader();
+
+   property string EntryName;
+   property string NameAttribute;
+   property string TypeAttribute;
+   property string LastRootName get;
+
+   method Read(&xml As string) Returns DG_SERIALIZE:Core:DataNode;
+   method ReadDoc(&doc As XmlDoc) Returns DG_SERIALIZE:Core:DataNode;
+   method ReadElement(&el As XmlNode) Returns DG_SERIALIZE:Core:DataNode;
+
+private
+   instance string &rootName;
+
+   method ReadMembers(&elements As array of any, &collapseRepeats As boolean) Returns DG_SERIALIZE:Core:DataNode;
+end-class;
+
+
+method XmlReader
+   %This.EntryName = "entry";
+   %This.NameAttribute = "dg_name";
+   %This.TypeAttribute = "dg_type";
+end-method;
+
+
+get LastRootName
+   /+ Returns String +/
+   Return &rootName;
+end-get;
+
+
+method Read
+   /+ &xml as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local XmlDoc &doc = CreateXmlDoc("");
+   Local boolean &ok;
+
+   try
+      &ok = &doc.ParseXmlString(&xml);
+   catch Exception &ex
+      throw CreateException(0, 0, "DG_SERIALIZE:Xml:XmlReader - XML parse error: %1", &ex.ToString());
+   end-try;
+   If Not &ok Then
+      throw CreateException(0, 0, "DG_SERIALIZE:Xml:XmlReader - XML parse error: document is not well formed");
+   End-If;
+
+   Return %This.ReadDoc(&doc);
+end-method;
+
+
+method ReadDoc
+   /+ &doc as XmlDoc +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local XmlNode &root = &doc.DocumentElement;
+   &rootName = &root.NodeName;
+   Return %This.ReadElement(&root);
+end-method;
+
+
+method ReadElement
+   /+ &el as XmlNode +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local string &hint = Lower(&el.GetAttributeValue(%This.TypeAttribute));
+   Local array of XmlNode &kids = &el.ChildNodes;
+   Local array of any &elements = CreateArrayAny();
+   Local string &text = "";
+   Local number &i;
+   Local XmlNode &k;
+   Local DG_SERIALIZE:Core:DataNode &n;
+
+   /* NodeType: 1 = element, 3 = text, 4 = CDATA */
+   For &i = 1 To &kids.Len
+      &k = &kids [&i];
+      If &k.NodeType = 1 Then
+         &elements.Push(&k);
+      Else
+         If &k.NodeType = 3 Or
+               &k.NodeType = 4 Then
+            &text = &text | &k.NodeValue;
+         End-If;
+      End-If;
+   End-For;
+
+   Evaluate &hint
+   When "object"
+      Return %This.ReadMembers(&elements, False);
+
+   When "array"
+      &n = create DG_SERIALIZE:Core:DataNode("ARRAY");
+      For &i = 1 To &elements.Len
+         &n.Add(%This.ReadElement(&elements [&i]));
+      End-For;
+      Return &n;
+
+   When "null"
+      Return create DG_SERIALIZE:Core:DataNode("NULL");
+
+   When "string"
+      &n = create DG_SERIALIZE:Core:DataNode("STRING");
+      Return &n.SetString(&text);
+   End-Evaluate;
+
+   If &hint = "number" Or
+         &hint = "boolean" Or
+         &hint = "date" Or
+         &hint = "datetime" Or
+         &hint = "time" Then
+      &n = create DG_SERIALIZE:Core:DataNode("STRING");
+      Return &n.SetScalar(Upper(&hint), &text);
+   End-If;
+
+   /* no (or unknown) hint: infer from the structure */
+   If &elements.Len > 0 Then
+      Return %This.ReadMembers(&elements, True);
+   End-If;
+   &n = create DG_SERIALIZE:Core:DataNode("STRING");
+   Return &n.SetString(&text);
+end-method;
+
+
+method ReadMembers
+   /+ &elements as Array of Any, +/
+   /+ &collapseRepeats as Boolean +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &obj = create DG_SERIALIZE:Core:DataNode("OBJECT");
+   Local DG_SERIALIZE:Core:DataNode &child;
+   Local DG_SERIALIZE:Core:DataNode &existing;
+   Local DG_SERIALIZE:Core:DataNode &list;
+   Local array of string &repeated = CreateArrayRept("", 0);
+   Local XmlNode &k;
+   Local string &key;
+   Local string &alias;
+   Local number &i;
+
+   For &i = 1 To &elements.Len
+      &k = &elements [&i];
+      &key = &k.NodeName;
+      If &key = %This.EntryName Then
+         &alias = &k.GetAttributeValue(%This.NameAttribute);
+         If Len(&alias) > 0 Then
+            &key = &alias;
+         End-If;
+      End-If;
+
+      &child = %This.ReadElement(&k);
+
+      If &collapseRepeats And
+            &obj.HasMember(&key) Then
+         /* second occurrence of a name: turn the member into an array */
+         If &repeated.Find(&key) = 0 Then
+            &existing = &obj.GetMember(&key);
+            &list = create DG_SERIALIZE:Core:DataNode("ARRAY");
+            &list.Add(&existing);
+            &obj.Put(&key, &list);
+            &repeated.Push(&key);
+         End-If;
+         &list = &obj.GetMember(&key);
+         &list.Add(&child);
+      Else
+         &obj.Put(&key, &child);
+      End-If;
+   End-For;
+
+   Return &obj;
+end-method;
