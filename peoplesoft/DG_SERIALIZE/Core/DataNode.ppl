@@ -487,13 +487,27 @@ end-method;
 method RemoveMember
    /+ &key as String +/
    Local number &idx;
+   Local number &i;
+   Local array of string &keptKeys;
+   Local array of any &keptValues;
 
    %This.RequireKind("OBJECT", "RemoveMember");
    &idx = &keys_.Find(&key);
-   If &idx > 0 Then
-      &keys_.Splice(&idx, 1);
-      &values_.Splice(&idx, 1);
+   If &idx = 0 Then
+      Return;
    End-If;
+
+   /* rebuild both arrays without the member, keeping insertion order */
+   &keptKeys = CreateArrayRept("", 0);
+   &keptValues = CreateArrayAny();
+   For &i = 1 To &keys_.Len
+      If &i <> &idx Then
+         &keptKeys.Push(&keys_ [&i]);
+         &keptValues.Push(&values_ [&i]);
+      End-If;
+   End-For;
+   &keys_ = &keptKeys;
+   &values_ = &keptValues;
 end-method;
 
 method KeyAt
