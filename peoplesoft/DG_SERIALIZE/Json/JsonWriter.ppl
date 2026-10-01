@@ -10,6 +10,8 @@
  * DATE / DATETIME / TIME nodes are written as ISO-8601 strings.
  * Output is assembled in an array and joined once, so large rowsets do not
  * pay for repeated string concatenation.
+ * Note: Array.Join wraps its result in "(" and ")" unless the start/end
+ * arguments are passed, hence Join("", "", "") throughout the package.
  * ========================================================================= */
 import DG_SERIALIZE:Core:DataNode;
 
@@ -41,7 +43,7 @@ method Write
    /+ Returns String +/
    Local array of string &out = CreateArrayRept("", 0);
    %This.WriteNode(&node, &out, 0);
-   Return &out.Join("");
+   Return &out.Join("", "", "");
 end-method;
 
 
@@ -143,7 +145,7 @@ method Quote
    End-If;
    &buf.Push(Char(34));
 
-   Return &buf.Join("");
+   Return &buf.Join("", "", "");
 end-method;
 
 

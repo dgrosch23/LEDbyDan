@@ -117,7 +117,7 @@ method Run
 
    &log.Push("");
    &log.Push("DG_SERIALIZE self test: " | String(&pass) | " passed, " | String(&fail) | " failed");
-   Return &log.Join(Char(10));
+   Return &log.Join(Char(10), "", "");
 end-method;
 
 

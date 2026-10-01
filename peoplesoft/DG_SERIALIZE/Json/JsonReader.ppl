@@ -223,7 +223,7 @@ method ReadString
             &buf.Push(Substring(&src, &pos, &q - &pos));
          End-If;
          &pos = &q + 1;
-         Return &buf.Join("");
+         Return &buf.Join("", "", "");
       End-If;
 
       /* copy the run before the escape, then decode it */

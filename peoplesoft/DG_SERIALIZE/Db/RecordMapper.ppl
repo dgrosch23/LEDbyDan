@@ -550,7 +550,7 @@ method DescribeKeys
          &parts.Push(&fld.Name | "=" | String(&fld.Value));
       End-If;
    End-For;
-   Return "[" | &parts.Join(", ") | "]";
+   Return "[" | &parts.Join(", ", "", "") | "]";
 end-method;
 
 
