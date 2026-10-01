@@ -79,7 +79,6 @@ method ReadElement
    /+ &el as XmlNode +/
    /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local string &hint = Lower(&el.GetAttributeValue(%This.TypeAttribute));
-   Local array of XmlNode &kids = &el.ChildNodes;
    Local array of any &elements = CreateArrayAny();
    Local string &text = "";
    Local number &i;
@@ -87,8 +86,8 @@ method ReadElement
    Local DG_SERIALIZE:Core:DataNode &n;
 
    /* NodeType: 1 = element, 3 = text, 4 = CDATA */
-   For &i = 1 To &kids.Len
-      &k = &kids [&i];
+   For &i = 1 To &el.ChildNodeCount
+      &k = &el.GetChildNode(&i);
       If &k.NodeType = 1 Then
          &elements.Push(&k);
       Else

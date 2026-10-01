@@ -294,6 +294,7 @@ method SetScalar
    /+ &text as String +/
    /+ Returns DG_SERIALIZE:Core:DataNode +/
    Local string &k = Upper(&kind);
+   Local string &b;
 
    Evaluate &k
    When "STRING"
@@ -301,7 +302,7 @@ method SetScalar
    When "NUMBER"
       Return %This.SetNumberText(&text);
    When "BOOLEAN"
-      Local string &b = Lower(LTrim(RTrim(&text)));
+      &b = Lower(LTrim(RTrim(&text)));
       Return %This.SetBoolean(&b = "true" Or
             &b = "y" Or
             &b = "yes" Or
@@ -333,6 +334,7 @@ end-method;
 method AsNumber
    /+ Returns Number +/
    Local string &t = LTrim(RTrim(&text_));
+   Local DG_SERIALIZE:Core:DataNode &tmp;
 
    If &kind_ = "BOOLEAN" Then
       If &text_ = "true" Then
@@ -344,8 +346,9 @@ method AsNumber
       Return 0;
    End-If;
    If Find("E", Upper(&t)) > 0 Then
-      Local DG_SERIALIZE:Core:DataNode &tmp = create DG_SERIALIZE:Core:DataNode("NUMBER");
-      &t = &tmp.SetNumberText(&t).Text;
+      &tmp = create DG_SERIALIZE:Core:DataNode("NUMBER");
+      &tmp = &tmp.SetNumberText(&t);
+      &t = &tmp.Text;
    End-If;
    If Not IsNumber(&t) Then
       %This.Fail("value '" | &text_ | "' is not numeric");
