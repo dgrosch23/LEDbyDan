@@ -116,7 +116,7 @@ method Run
    end-try;
 
    &log.Push("");
-   &log.Push("DG_SERIALIZE self test: " | &pass | " passed, " | &fail | " failed");
+   &log.Push("DG_SERIALIZE self test: " | String(&pass) | " passed, " | String(&fail) | " failed");
    Return &log.Join(Char(10));
 end-method;
 

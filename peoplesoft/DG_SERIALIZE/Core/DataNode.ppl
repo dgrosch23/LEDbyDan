@@ -109,7 +109,7 @@ method DataNode
          &k <> "DATE" And
          &k <> "DATETIME" And
          &k <> "TIME" Then
-      throw CreateException(0, 0, "DG_SERIALIZE: unknown node kind '%1'", &kind);
+      throw CreateException(0, 0, "DG_SERIALIZE:Core:DataNode - unknown node kind '" | &kind | "'");
    End-If;
 
    &kind_ = &k;
@@ -619,7 +619,7 @@ method ValueAt
    End-If;
    If &index < 1 Or
          &index > &values_.Len Then
-      %This.Fail("index " | &index | " is out of range (count " | &values_.Len | ")");
+      %This.Fail("index " | String(&index) | " is out of range (count " | String(&values_.Len) | ")");
    End-If;
    Return &values_ [&index];
 end-method;
@@ -648,5 +648,5 @@ end-method;
 
 method Fail
    /+ &message as String +/
-   throw CreateException(0, 0, "DG_SERIALIZE:Core:DataNode - %1", &message);
+   throw CreateException(0, 0, "DG_SERIALIZE:Core:DataNode - " | &message);
 end-method;

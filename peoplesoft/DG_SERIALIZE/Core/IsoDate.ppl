@@ -146,7 +146,7 @@ method Num
    /+ Returns Number +/
    Local string &part = Substring(&s, &start, &length);
    If Not IsDigits(&part) Then
-      throw CreateException(0, 0, "DG_SERIALIZE:Core:IsoDate - '%1' is not a valid ISO-8601 value", &s);
+      throw CreateException(0, 0, "DG_SERIALIZE:Core:IsoDate - '" | &s | "' is not a valid ISO-8601 value");
    End-If;
    Return Value(&part);
 end-method;

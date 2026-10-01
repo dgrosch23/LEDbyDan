@@ -359,5 +359,5 @@ end-method;
 
 method Fail
    /+ &message as String +/
-   throw CreateException(0, 0, "DG_SERIALIZE:Json:JsonReader - JSON parse error at position %1: %2", &pos, &message);
+   throw CreateException(0, 0, "DG_SERIALIZE:Json:JsonReader - JSON parse error at position " | String(&pos) | ": " | &message);
 end-method;

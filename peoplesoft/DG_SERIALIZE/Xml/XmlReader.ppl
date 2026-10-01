@@ -56,7 +56,7 @@ method Read
    try
       &ok = &doc.ParseXmlString(&xml);
    catch Exception &ex
-      throw CreateException(0, 0, "DG_SERIALIZE:Xml:XmlReader - XML parse error: %1", &ex.ToString());
+      throw CreateException(0, 0, "DG_SERIALIZE:Xml:XmlReader - XML parse error: " | &ex.ToString());
    end-try;
    If Not &ok Then
       throw CreateException(0, 0, "DG_SERIALIZE:Xml:XmlReader - XML parse error: document is not well formed");

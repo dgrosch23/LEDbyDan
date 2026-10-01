@@ -573,5 +573,5 @@ end-method;
 
 method Fail
    /+ &message as String +/
-   throw CreateException(0, 0, "DG_SERIALIZE:Db:RecordMapper - %1", &message);
+   throw CreateException(0, 0, "DG_SERIALIZE:Db:RecordMapper - " | &message);
 end-method;
