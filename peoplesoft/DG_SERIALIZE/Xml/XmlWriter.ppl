@@ -90,6 +90,7 @@ method Fill
    Local number &i;
    Local string &key;
    Local XmlNode &child;
+   Local XmlNode &textNode;
 
    If &node = Null Then
       %This.Hint(&el, "null");
@@ -129,7 +130,8 @@ method Fill
          %This.Hint(&el, Lower(&node.Kind));
       End-If;
       If Len(&node.Text) > 0 Then
-         &el.AddText(&node.Text);
+         /* AddText returns the new text node; it must be assigned */
+         &textNode = &el.AddText(&node.Text);
       End-If;
    End-Evaluate;
 end-method;

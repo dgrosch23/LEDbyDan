@@ -124,6 +124,7 @@ end-method;
 /* ------------------------------------------------------------------------ */
 
 method TestJsonParse
+   Local boolean &ok;
    Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
    Local DG_SERIALIZE:Core:DataNode &n;
    Local string &json;
@@ -136,13 +137,18 @@ method TestJsonParse
 
    %This.CheckEqual("root kind", "OBJECT", &n.Kind);
    %This.CheckEqual("string member", "Ada", &n.GetString("name"));
-   %This.Check("array count", &n.GetMember("tags").Count = 2);
+   &ok = (&n.GetMember("tags").Count = 2);
+   %This.Check("array count", &ok);
    %This.CheckEqual("array item", "b", &n.GetMember("tags").ValueAt(2).AsString());
-   %This.Check("exponent number", &n.GetNumber("n") = - 125);
+   &ok = (&n.GetNumber("n") = -125);
+   %This.Check("exponent number", &ok);
    %This.CheckEqual("precision kept", "3.14159265358979323846", &n.GetMember("pi").Text);
-   %This.Check("true", &n.GetBoolean("ok"));
-   %This.Check("false", Not &n.GetBoolean("no"));
-   %This.Check("null", &n.GetMember("none").IsNull());
+   &ok = &n.GetBoolean("ok");
+   %This.Check("true", &ok);
+   &ok = Not &n.GetBoolean("no");
+   %This.Check("false", &ok);
+   &ok = &n.GetMember("none").IsNull();
+   %This.Check("null", &ok);
    %This.CheckEqual("nested", "1", &n.GetMember("nested").GetMember("x").Text);
    %This.CheckEqual("member order", "tags", &n.KeyAt(2));
 
@@ -178,6 +184,7 @@ end-method;
 
 
 method TestJsonErrors
+   Local boolean &ok;
    Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
    Local array of string &bad = CreateArray("", "{", "[1,2", "{""a"" 1}", "[1,]x", "tru", "{""a"":1}}", "01x", """open");
    Local number &i;
@@ -193,7 +200,8 @@ method TestJsonErrors
       catch Exception &ex
          &threw = True;
       end-try;
-      %This.Check("rejects: " | &bad [&i], &threw);
+      &ok = &threw;
+      %This.Check("rejects: " | &bad [&i], &ok);
    End-For;
 end-method;
 
@@ -225,6 +233,7 @@ end-method;
 
 
 method TestXmlInference
+   Local boolean &ok;
    Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
    Local DG_SERIALIZE:Core:DataNode &n;
 
@@ -241,11 +250,13 @@ method TestXmlInference
 
    &ser.XmlOut.TypeHints = False;
    &ser.XmlOut.RootName = "employee";
-   %This.Check("plain XML has no hints", Find("dg_type", &ser.ToXml(&n)) = 0);
+   &ok = (Find("dg_type", &ser.ToXml(&n)) = 0);
+   %This.Check("plain XML has no hints", &ok);
 end-method;
 
 
 method TestRecord
+   Local boolean &ok;
    Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
    Local Record &rec = CreateRecord(Record.PSXLATITEM);
    Local Record &copy;
@@ -271,39 +282,44 @@ method TestRecord
    &json = &ser.RecordToJson(&rec);
    &copy = CreateRecord(Record.PSXLATITEM);
    &ser.JsonToRecord(&json, &copy);
-   %This.CheckEqual("json char", &rec.XLATLONGNAME.Value, &copy.XLATLONGNAME.Value);
-   %This.Check("json date", &copy.EFFDT.Value = &rec.EFFDT.Value);
-   %This.Check("json datetime", &copy.LASTUPDDTTM.Value = &rec.LASTUPDDTTM.Value);
+   %This.CheckEqual("json char", String(&rec.XLATLONGNAME.Value), String(&copy.XLATLONGNAME.Value));
+   &ok = (&copy.EFFDT.Value = &rec.EFFDT.Value);
+   %This.Check("json date", &ok);
+   &ok = (&copy.LASTUPDDTTM.Value = &rec.LASTUPDDTTM.Value);
+   %This.Check("json datetime", &ok);
 
    /* XML round trip */
    &copy = CreateRecord(Record.PSXLATITEM);
    &ser.XmlToRecord(&ser.RecordToXml(&rec), &copy);
-   %This.CheckEqual("xml char", &rec.XLATLONGNAME.Value, &copy.XLATLONGNAME.Value);
-   %This.Check("xml date", &copy.EFFDT.Value = &rec.EFFDT.Value);
+   %This.CheckEqual("xml char", String(&rec.XLATLONGNAME.Value), String(&copy.XLATLONGNAME.Value));
+   &ok = (&copy.EFFDT.Value = &rec.EFFDT.Value);
+   %This.Check("xml date", &ok);
 
    /* key styles, and tolerant matching on the way back */
    &ser.Records.KeyStyle = "CAMEL";
    &n = &ser.Records.RecordToNode(&rec);
-   %This.Check("camelCase key", &n.HasMember("xlatlongname") And
-         &n.HasMember("effStatus"));
+   &ok = (&n.HasMember("xlatlongname") And &n.HasMember("effStatus"));
+   %This.Check("camelCase key", &ok);
    &copy = CreateRecord(Record.PSXLATITEM);
    &ser.Records.KeyStyle = "FIELD";
    &ser.Records.NodeToRecord(&n, &copy);
-   %This.CheckEqual("tolerant key match", "A", &copy.EFF_STATUS.Value);
+   %This.CheckEqual("tolerant key match", "A", String(&copy.EFF_STATUS.Value));
 
    /* IncludeEmpty = False drops blanks */
    &ser.Records.IncludeEmpty = False;
    &n = &ser.Records.RecordToNode(&rec);
-   %This.Check("empty omitted", Not &n.HasMember("LASTUPDOPRID"));
+   &ok = Not &n.HasMember("LASTUPDOPRID");
+   %This.Check("empty omitted", &ok);
 
    /* partial update leaves other fields alone */
    &ser.JsonToRecord("{""XLATSHORTNAME"":""Changed""}", &copy);
-   %This.CheckEqual("partial: changed", "Changed", &copy.XLATSHORTNAME.Value);
-   %This.CheckEqual("partial: untouched", "A", &copy.EFF_STATUS.Value);
+   %This.CheckEqual("partial: changed", "Changed", String(&copy.XLATSHORTNAME.Value));
+   %This.CheckEqual("partial: untouched", "A", String(&copy.EFF_STATUS.Value));
 end-method;
 
 
 method TestRowset
+   Local boolean &ok;
    Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
    Local Rowset &rs = CreateRowset(Record.PSXLATITEM);
    Local Rowset &copy = CreateRowset(Record.PSXLATITEM);
@@ -327,8 +343,9 @@ method TestRowset
    %This.CheckEqual("empty rowset", "[]", &ser.RowsetToJson(&empty));
 
    &ser.JsonToRowset(&json, &copy);
-   %This.Check("row count", &copy.ActiveRowCount = 2);
-   %This.CheckEqual("row 2 value", "I", &copy.GetRow(2).GetRecord(Record.PSXLATITEM).FIELDVALUE.Value);
+   &ok = (&copy.ActiveRowCount = 2);
+   %This.Check("row count", &ok);
+   %This.CheckEqual("row 2 value", "I", String(&copy.GetRow(2).GetRecord(Record.PSXLATITEM).FIELDVALUE.Value));
    %This.CheckEqual("rowset json round trip", &json, &ser.RowsetToJson(&copy));
 
    &copy = CreateRowset(Record.PSXLATITEM);
@@ -338,6 +355,7 @@ end-method;
 
 
 method TestClasses
+   Local boolean &ok;
    Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
    Local DG_SERIALIZE:Obj:ClassSchema &addrSchema;
    Local DG_SERIALIZE:Obj:ClassSchema &empSchema;
@@ -411,15 +429,20 @@ method TestClasses
 
    &copy = &ser.JsonToObject(&json, "DG_SERIALIZE:Test:Employee");
    %This.CheckEqual("scalar", "Ada Lovelace", &copy.Name);
-   %This.Check("number", &copy.Salary = 123456.78);
-   %This.Check("boolean", &copy.Active);
-   %This.Check("date", &copy.HireDate = Date3(2015, 12, 10));
-   %This.Check("datetime", &copy.LastLogin = DateTime6(2024, 5, 1, 8, 0, 5));
+   &ok = (&copy.Salary = 123456.78);
+   %This.Check("number", &ok);
+   &ok = &copy.Active;
+   %This.Check("boolean", &ok);
+   &ok = (&copy.HireDate = Date3(2015, 12, 10));
+   %This.Check("date", &ok);
+   &ok = (&copy.LastLogin = DateTime6(2024, 5, 1, 8, 0, 5));
+   %This.Check("datetime", &ok);
    %This.CheckEqual("scalar array", "SQL", &copy.Skills [2]);
    %This.CheckEqual("nested object", "Madison", &copy.HomeAddress.City);
    &a = &copy.PreviousAddresses [1];
    %This.CheckEqual("object array item", "London", &a.City);
-   %This.Check("Serializable amount", &copy.Bonus.Amount = 1250.5);
+   &ok = (&copy.Bonus.Amount = 1250.5);
+   %This.Check("Serializable amount", &ok);
    %This.CheckEqual("Serializable currency", "EUR", &copy.Bonus.Currency);
 
    /* the same object through XML */
@@ -429,11 +452,13 @@ method TestClasses
    /* null nested object */
    &emp.HomeAddress = Null;
    &n = &ser.Classes.ToNode(&emp, "DG_SERIALIZE:Test:Employee");
-   %This.Check("null object", &n.GetMember("home").IsNull());
+   &ok = &n.GetMember("home").IsNull();
+   %This.Check("null object", &ok);
 end-method;
 
 
 method TestQuery
+   Local boolean &ok;
    Local DG_SERIALIZE:Serializer &ser = %This.NewSerializer();
    Local DG_SERIALIZE:Core:DataNode &n;
    Local boolean &threw = False;
@@ -441,7 +466,8 @@ method TestQuery
    %This.Section("SQL query (read only)");
 
    &n = &ser.Records.QueryToNode("PSXLATITEM", "WHERE FIELDNAME = :1 ORDER BY FIELDVALUE", CreateArrayAny("EFF_STATUS"));
-   %This.Check("rows returned", &n.Count >= 2);
+   &ok = (&n.Count >= 2);
+   %This.Check("rows returned", &ok);
    %This.CheckEqual("first row", "A", &n.ValueAt(1).GetString("FIELDVALUE"));
 
    try
@@ -449,7 +475,8 @@ method TestQuery
    catch Exception &ex
       &threw = True;
    end-try;
-   %This.Check("rejects injected record name", &threw);
+   &ok = &threw;
+   %This.Check("rejects injected record name", &ok);
 end-method;
 
 
