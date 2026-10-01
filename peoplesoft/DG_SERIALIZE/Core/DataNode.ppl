@@ -302,11 +302,16 @@ method SetScalar
    When "NUMBER"
       Return %This.SetNumberText(&textValue);
    When "BOOLEAN"
+      /* a comparison passed directly as a method argument evaluates to
+         False at runtime, so decide with an explicit If */
       &b = Lower(LTrim(RTrim(&textValue)));
-      Return %This.SetBoolean(&b = "true" Or
+      If &b = "true" Or
             &b = "y" Or
             &b = "yes" Or
-            &b = "1");
+            &b = "1" Then
+         Return %This.SetBoolean( True);
+      End-If;
+      Return %This.SetBoolean( False);
    When "NULL"
       Return %This.SetNull();
    When "DATE"
