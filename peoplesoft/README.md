@@ -218,12 +218,9 @@ inside a schema-mapped class. See `Test:Money`, which serializes to
   allow a method that returns a value to be called as a statement, which
   rules out fluent chaining.
 
-* This code hasn't been compiled against a live PeopleTools environment
-  yet. Run `Test:SelfTest` after importing it. The APIs it relies on are
-  `ObjectGetProperty`/`ObjectSetProperty`, `CreateObject` on application
-  class paths, `CreateSQL` with an array of bind values, and
-  `XmlNode.ChildNodes`/`NodeType`. If your release behaves differently for
-  any of them, the fix is confined to one method.
+* Compiled and tested on PeopleTools 8.62.06, where `Test:SelfTest` passes
+  all 78 checks. Rerun it after importing into another environment or
+  release.
 * Deserialized **object arrays** are created as `array of any`. Declare those
   properties as `array of any` (or `array of object`). Scalar arrays are
   typed (`array of string`, `array of number`, ...).
@@ -236,3 +233,27 @@ inside a schema-mapped class. See `Test:Money`, which serializes to
   rowset.
 * For component-buffer rowsets, set `Records.ClearRowsetFirst = False` if
   you don't want the scroll flushed before it's loaded.
+
+## PeopleCode rules this code follows
+
+These compiler and runtime behaviors came up while porting the package.
+Keep to them when changing the code:
+
+* A method that returns a value can't be called as a standalone statement.
+  Assign the result, for example `&textNode = &el.AddText(...)`. That's why
+  `Put*`, `Add*`, `WithKey` and `Register` return nothing.
+* Don't name a parameter or local variable after a property of the same
+  class (case-insensitive). `&kind` clashes with property `Kind` and fails
+  with "Duplicate parameter name".
+* Don't pass a comparison (`a = b`), `And`/`Or` or `Not` directly as a method
+  argument. Depending on the call it either won't compile or evaluates to
+  False at runtime. Compute a boolean first, or use an `If`.
+* Use `Not` only in `If`/`While` conditions. To assign it, use
+  `&ok = (&x = False);`.
+* `Array.Join` wraps its result in `(` and `)` unless you pass start and end
+  strings: `&arr.Join("", "", "")`.
+* `CreateException` substitution values must be strings, so build the whole
+  message first and pass no substitutions.
+* `XmlNode` has no `ChildNodes` property. Use `ChildNodeCount` and
+  `GetChildNode(index)`.
+* `Array` has no `Splice` method.
