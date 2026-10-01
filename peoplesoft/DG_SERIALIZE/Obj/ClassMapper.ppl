@@ -1,0 +1,387 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Obj:ClassMapper
+ *
+ * Converts application class instances to and from DataNode trees.
+ *
+ * Resolution for a class path:
+ *    1. a ClassSchema registered for it  -> properties are read/written with
+ *       ObjectGetProperty / ObjectSetProperty (works on classes you cannot
+ *       modify, including delivered ones)
+ *    2. otherwise the class must implement DG_SERIALIZE:Core:Serializable
+ *       and its own ToNode/FromNode are called
+ *
+ *    Local DG_SERIALIZE:Obj:ClassMapper &m = create DG_SERIALIZE:Obj:ClassMapper();
+ *    &m.Register(&employeeSchema);
+ *    &m.Register(&addressSchema);
+ *    Local DG_SERIALIZE:Core:DataNode &n = &m.ToNode(&emp, "MY_PKG:Model:Employee");
+ *    Local MY_PKG:Model:Employee &copy = &m.FromNode(&n, "MY_PKG:Model:Employee");
+ *
+ * Deserialized arrays: scalar arrays are created as typed arrays (array of
+ * string / number / boolean / date ...). Object arrays are created as
+ * "array of any", so declare such properties as array of any or
+ * array of object.
+ * ========================================================================= */
+import DG_SERIALIZE:Core:DataNode;
+import DG_SERIALIZE:Core:Serializable;
+import DG_SERIALIZE:Db:RecordMapper;
+import DG_SERIALIZE:Obj:ClassSchema;
+import DG_SERIALIZE:Obj:PropertyDescriptor;
+
+class ClassMapper
+   method ClassMapper();
+
+   property DG_SERIALIZE:Db:RecordMapper Records;
+   property boolean SkipNullObjects;
+
+   method Register(&schema As DG_SERIALIZE:Obj:ClassSchema);
+   method IsRegistered(&classPath As string) Returns boolean;
+
+   method ToNode(&obj As object, &classPath As string) Returns DG_SERIALIZE:Core:DataNode;
+   method FromNode(&node As DG_SERIALIZE:Core:DataNode, &classPath As string) Returns object;
+   method Populate(&node As DG_SERIALIZE:Core:DataNode, &obj As object, &classPath As string);
+
+private
+   instance array of string &paths;
+   instance array of any &schemas;
+
+   method FindSchema(&classPath As string) Returns DG_SERIALIZE:Obj:ClassSchema;
+   method PropertyToNode(&value As any, &p As DG_SERIALIZE:Obj:PropertyDescriptor) Returns DG_SERIALIZE:Core:DataNode;
+   method NodeToPropertyValue(&node As DG_SERIALIZE:Core:DataNode, &p As DG_SERIALIZE:Obj:PropertyDescriptor) Returns any;
+   method ScalarToNode(&value As any, &type As string) Returns DG_SERIALIZE:Core:DataNode;
+   method NodeToScalar(&node As DG_SERIALIZE:Core:DataNode, &type As string) Returns any;
+   method EmptyArrayFor(&type As string) Returns any;
+   method Fail(&message As string);
+end-class;
+
+
+method ClassMapper
+   &paths = CreateArrayRept("", 0);
+   &schemas = CreateArrayAny();
+   %This.Records = create DG_SERIALIZE:Db:RecordMapper();
+   %This.SkipNullObjects = False;
+end-method;
+
+
+method Register
+   /+ &schema as DG_SERIALIZE:Obj:ClassSchema +/
+   Local number &idx = &paths.Find(&schema.ClassPath);
+   If &idx > 0 Then
+      &schemas [&idx] = &schema;
+   Else
+      &paths.Push(&schema.ClassPath);
+      &schemas.Push(&schema);
+   End-If;
+end-method;
+
+
+method IsRegistered
+   /+ &classPath as String +/
+   /+ Returns Boolean +/
+   Return (&paths.Find(&classPath) > 0);
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* Object -> node                                                           */
+/* ------------------------------------------------------------------------ */
+
+method ToNode
+   /+ &obj as Object, +/
+   /+ &classPath as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Obj:ClassSchema &schema;
+   Local DG_SERIALIZE:Obj:PropertyDescriptor &p;
+   Local DG_SERIALIZE:Core:Serializable &custom;
+   Local DG_SERIALIZE:Core:DataNode &out;
+   Local DG_SERIALIZE:Core:DataNode &member;
+   Local any &value;
+   Local number &i;
+
+   If &obj = Null Then
+      Return create DG_SERIALIZE:Core:DataNode("NULL");
+   End-If;
+
+   &schema = %This.FindSchema(&classPath);
+   If &schema = Null Then
+      &custom = &obj;
+      Return &custom.ToNode();
+   End-If;
+
+   &out = create DG_SERIALIZE:Core:DataNode("OBJECT");
+   For &i = 1 To &schema.PropertyCount
+      &p = &schema.PropertyAt(&i);
+      &value = ObjectGetProperty(&obj, &p.Name);
+      &member = %This.PropertyToNode(&value, &p);
+      If Not (%This.SkipNullObjects And
+            &member.IsNull()) Then
+         &out.Put(&p.Key, &member);
+      End-If;
+   End-For;
+   Return &out;
+end-method;
+
+
+method PropertyToNode
+   /+ &value as Any, +/
+   /+ &p as DG_SERIALIZE:Obj:PropertyDescriptor +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &arr;
+   Local number &i;
+
+   Evaluate &p.Kind
+   When "SCALAR"
+      Return %This.ScalarToNode(&value, &p.ScalarType);
+
+   When "OBJECT"
+      Return %This.ToNode(&value, &p.ClassPath);
+
+   When "SCALAR_ARRAY"
+      If &value = Null Then
+         Return create DG_SERIALIZE:Core:DataNode("NULL");
+      End-If;
+      &arr = create DG_SERIALIZE:Core:DataNode("ARRAY");
+      For &i = 1 To &value.Len
+         &arr.Add(%This.ScalarToNode(&value [&i], &p.ScalarType));
+      End-For;
+      Return &arr;
+
+   When "OBJECT_ARRAY"
+      If &value = Null Then
+         Return create DG_SERIALIZE:Core:DataNode("NULL");
+      End-If;
+      &arr = create DG_SERIALIZE:Core:DataNode("ARRAY");
+      For &i = 1 To &value.Len
+         &arr.Add(%This.ToNode(&value [&i], &p.ClassPath));
+      End-For;
+      Return &arr;
+
+   When "RECORD"
+      If &value = Null Then
+         Return create DG_SERIALIZE:Core:DataNode("NULL");
+      End-If;
+      Return %This.Records.RecordToNode(&value);
+
+   When "ROWSET"
+      If &value = Null Then
+         Return create DG_SERIALIZE:Core:DataNode("NULL");
+      End-If;
+      Return %This.Records.RowsetToNode(&value);
+   End-Evaluate;
+
+   %This.Fail("unknown property kind '" | &p.Kind | "' for " | &p.Name);
+   Return Null;
+end-method;
+
+
+method ScalarToNode
+   /+ &value as Any, +/
+   /+ &type as String +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   Local DG_SERIALIZE:Core:DataNode &n = create DG_SERIALIZE:Core:DataNode("NULL");
+
+   Evaluate &type
+   When "NUMBER"
+      Return &n.SetNumber(&value);
+   When "BOOLEAN"
+      Return &n.SetBoolean(&value);
+   When "DATE"
+      If None(&value) Then
+         Return &n;
+      End-If;
+      Return &n.SetDate(&value);
+   When "DATETIME"
+      If None(&value) Then
+         Return &n;
+      End-If;
+      Return &n.SetDateTime(&value);
+   When "TIME"
+      If None(&value) Then
+         Return &n;
+      End-If;
+      Return &n.SetTime(&value);
+   End-Evaluate;
+
+   Return &n.SetString(&value);
+end-method;
+
+
+/* ------------------------------------------------------------------------ */
+/* Node -> object                                                           */
+/* ------------------------------------------------------------------------ */
+
+method FromNode
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &classPath as String +/
+   /+ Returns Object +/
+   Local object &obj;
+   Local DG_SERIALIZE:Core:Serializable &custom;
+
+   If &node = Null Then
+      Return Null;
+   End-If;
+   If &node.IsNull() Then
+      Return Null;
+   End-If;
+
+   &obj = CreateObject(&classPath);
+
+   If %This.FindSchema(&classPath) = Null Then
+      &custom = &obj;
+      &custom.FromNode(&node);
+      Return &obj;
+   End-If;
+
+   %This.Populate(&node, &obj, &classPath);
+   Return &obj;
+end-method;
+
+
+method Populate
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &obj as Object, +/
+   /+ &classPath as String +/
+   /* Fills an existing instance. Members missing from &node are left as
+      they are, so defaults set by the constructor survive. */
+   Local DG_SERIALIZE:Obj:ClassSchema &schema = %This.FindSchema(&classPath);
+   Local DG_SERIALIZE:Obj:PropertyDescriptor &p;
+   Local DG_SERIALIZE:Core:DataNode &member;
+   Local number &i;
+
+   If &schema = Null Then
+      %This.Fail("no ClassSchema registered for " | &classPath);
+   End-If;
+   If Not &node.IsObject() Then
+      %This.Fail(&classPath | " can only be populated from an OBJECT node, got " | &node.Kind);
+   End-If;
+
+   For &i = 1 To &schema.PropertyCount
+      &p = &schema.PropertyAt(&i);
+      &member = &node.GetMember(&p.Key);
+      If &member <> Null Then
+         ObjectSetProperty(&obj, &p.Name, %This.NodeToPropertyValue(&member, &p));
+      End-If;
+   End-For;
+end-method;
+
+
+method NodeToPropertyValue
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &p as DG_SERIALIZE:Obj:PropertyDescriptor +/
+   /+ Returns Any +/
+   Local any &arr;
+   Local array of any &objects;
+   Local Record &rec;
+   Local Rowset &rs;
+   Local number &i;
+
+   If &p.Kind = "SCALAR" Then
+      Return %This.NodeToScalar(&node, &p.ScalarType);
+   End-If;
+
+   /* every structured kind maps null to Null */
+   If &node.IsNull() Then
+      Return Null;
+   End-If;
+
+   Evaluate &p.Kind
+   When "OBJECT"
+      Return %This.FromNode(&node, &p.ClassPath);
+
+   When "SCALAR_ARRAY"
+      If Not &node.IsArray() Then
+         %This.Fail("property " | &p.Name | " expects an ARRAY, got " | &node.Kind);
+      End-If;
+      &arr = %This.EmptyArrayFor(&p.ScalarType);
+      For &i = 1 To &node.Count
+         &arr.Push(%This.NodeToScalar(&node.ValueAt(&i), &p.ScalarType));
+      End-For;
+      Return &arr;
+
+   When "OBJECT_ARRAY"
+      If Not &node.IsArray() Then
+         %This.Fail("property " | &p.Name | " expects an ARRAY, got " | &node.Kind);
+      End-If;
+      &objects = CreateArrayAny();
+      For &i = 1 To &node.Count
+         &objects.Push(%This.FromNode(&node.ValueAt(&i), &p.ClassPath));
+      End-For;
+      Return &objects;
+
+   When "RECORD"
+      &rec = CreateRecord(@("Record." | &p.RecordName));
+      %This.Records.NodeToRecord(&node, &rec);
+      Return &rec;
+
+   When "ROWSET"
+      /* flat rowsets only; for hierarchies populate a prepared rowset
+         yourself with Records.NodeToRowset */
+      &rs = CreateRowset(@("Record." | &p.RecordName));
+      %This.Records.NodeToRowset(&node, &rs);
+      Return &rs;
+   End-Evaluate;
+
+   %This.Fail("unknown property kind '" | &p.Kind | "' for " | &p.Name);
+   Return Null;
+end-method;
+
+
+method NodeToScalar
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &type as String +/
+   /+ Returns Any +/
+   Evaluate &type
+   When "NUMBER"
+      Return &node.AsNumber();
+   When "BOOLEAN"
+      Return &node.AsBoolean();
+   When "DATE"
+      Return &node.AsDate();
+   When "DATETIME"
+      Return &node.AsDateTime();
+   When "TIME"
+      Return &node.AsTime();
+   End-Evaluate;
+   Return &node.AsString();
+end-method;
+
+
+method EmptyArrayFor
+   /+ &type as String +/
+   /+ Returns Any +/
+   Local date &d;
+   Local datetime &dt;
+   Local time &t;
+
+   Evaluate &type
+   When "STRING"
+      Return CreateArrayRept("", 0);
+   When "NUMBER"
+      Return CreateArrayRept(0, 0);
+   When "BOOLEAN"
+      Return CreateArrayRept( False, 0);
+   When "DATE"
+      Return CreateArrayRept(&d, 0);
+   When "DATETIME"
+      Return CreateArrayRept(&dt, 0);
+   When "TIME"
+      Return CreateArrayRept(&t, 0);
+   End-Evaluate;
+   Return CreateArrayAny();
+end-method;
+
+
+method FindSchema
+   /+ &classPath as String +/
+   /+ Returns DG_SERIALIZE:Obj:ClassSchema +/
+   Local number &idx = &paths.Find(&classPath);
+   If &idx = 0 Then
+      Return Null;
+   End-If;
+   Return &schemas [&idx];
+end-method;
+
+
+method Fail
+   /+ &message as String +/
+   throw CreateException(0, 0, "DG_SERIALIZE:Obj:ClassMapper - " | &message);
+end-method;

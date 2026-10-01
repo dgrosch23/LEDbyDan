@@ -1,0 +1,154 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Obj:ClassSchema
+ *
+ * Declares how an application class maps to a DataNode. PeopleCode has no
+ * reflection, so a schema lists the public properties to serialize. It
+ * works with established/delivered classes that you cannot modify.
+ *
+ *    Local DG_SERIALIZE:Obj:ClassSchema &s =
+ *          create DG_SERIALIZE:Obj:ClassSchema("MY_PKG:Model:Employee");
+ *    &s.AddScalar("EmplId", "STRING");
+ *    &s.WithKey("emplid");             (renames the member just added)
+ *    &s.AddScalar("HireDate", "DATE");
+ *    &s.AddScalarArray("Skills", "STRING");
+ *    &s.AddObject("HomeAddress", "MY_PKG:Model:Address");
+ *    &s.AddObjectArray("Dependents", "MY_PKG:Model:Person");
+ *    &s.AddRecord("JobRow", "JOB");
+ *
+ * WithKey() renames the member most recently added (the default key is
+ * the property name).
+ *
+ * Requirements on the described class:
+ *    - properties must be public (plain or get/set)
+ *    - for deserialization it needs a constructor that takes no arguments
+ * ========================================================================= */
+import DG_SERIALIZE:Obj:PropertyDescriptor;
+
+class ClassSchema
+   method ClassSchema(&classPath As string);
+
+   property string ClassPath get;
+   property number PropertyCount get;
+
+   method PropertyAt(&index As number) Returns DG_SERIALIZE:Obj:PropertyDescriptor;
+
+   method AddScalar(&propName As string, &scalarType As string);
+   method AddScalarArray(&propName As string, &scalarType As string);
+   method AddObject(&propName As string, &classPath As string);
+   method AddObjectArray(&propName As string, &classPath As string);
+   method AddRecord(&propName As string, &recordName As string);
+   method AddRowset(&propName As string, &recordName As string);
+   method WithKey(&key As string);
+
+private
+   instance string &path;
+   instance array of any &props;
+
+   method Append(&p As DG_SERIALIZE:Obj:PropertyDescriptor);
+   method CheckScalarType(&scalarType As string) Returns string;
+end-class;
+
+
+method ClassSchema
+   /+ &classPath as String +/
+   &path = &classPath;
+   &props = CreateArrayAny();
+end-method;
+
+
+get ClassPath
+   /+ Returns String +/
+   Return &path;
+end-get;
+
+get PropertyCount
+   /+ Returns Number +/
+   Return &props.Len;
+end-get;
+
+
+method PropertyAt
+   /+ &index as Number +/
+   /+ Returns DG_SERIALIZE:Obj:PropertyDescriptor +/
+   Return &props [&index];
+end-method;
+
+
+method AddScalar
+   /+ &propName as String, +/
+   /+ &scalarType as String +/
+   Local DG_SERIALIZE:Obj:PropertyDescriptor &p = create DG_SERIALIZE:Obj:PropertyDescriptor(&propName, "SCALAR");
+   &p.ScalarType = %This.CheckScalarType(&scalarType);
+   %This.Append(&p);
+end-method;
+
+method AddScalarArray
+   /+ &propName as String, +/
+   /+ &scalarType as String +/
+   Local DG_SERIALIZE:Obj:PropertyDescriptor &p = create DG_SERIALIZE:Obj:PropertyDescriptor(&propName, "SCALAR_ARRAY");
+   &p.ScalarType = %This.CheckScalarType(&scalarType);
+   %This.Append(&p);
+end-method;
+
+method AddObject
+   /+ &propName as String, +/
+   /+ &classPath as String +/
+   Local DG_SERIALIZE:Obj:PropertyDescriptor &p = create DG_SERIALIZE:Obj:PropertyDescriptor(&propName, "OBJECT");
+   &p.ClassPath = &classPath;
+   %This.Append(&p);
+end-method;
+
+method AddObjectArray
+   /+ &propName as String, +/
+   /+ &classPath as String +/
+   Local DG_SERIALIZE:Obj:PropertyDescriptor &p = create DG_SERIALIZE:Obj:PropertyDescriptor(&propName, "OBJECT_ARRAY");
+   &p.ClassPath = &classPath;
+   %This.Append(&p);
+end-method;
+
+method AddRecord
+   /+ &propName as String, +/
+   /+ &recordName as String +/
+   Local DG_SERIALIZE:Obj:PropertyDescriptor &p = create DG_SERIALIZE:Obj:PropertyDescriptor(&propName, "RECORD");
+   &p.RecordName = Upper(&recordName);
+   %This.Append(&p);
+end-method;
+
+method AddRowset
+   /+ &propName as String, +/
+   /+ &recordName as String +/
+   Local DG_SERIALIZE:Obj:PropertyDescriptor &p = create DG_SERIALIZE:Obj:PropertyDescriptor(&propName, "ROWSET");
+   &p.RecordName = Upper(&recordName);
+   %This.Append(&p);
+end-method;
+
+method WithKey
+   /+ &key as String +/
+   Local DG_SERIALIZE:Obj:PropertyDescriptor &p;
+   If &props.Len = 0 Then
+      throw CreateException(0, 0, "DG_SERIALIZE:Obj:ClassSchema - WithKey called before any property was added");
+   End-If;
+   &p = &props [&props.Len];
+   &p.Key = &key;
+end-method;
+
+
+method Append
+   /+ &p as DG_SERIALIZE:Obj:PropertyDescriptor +/
+   &props.Push(&p);
+end-method;
+
+method CheckScalarType
+   /+ &scalarType as String +/
+   /+ Returns String +/
+   Local string &t = Upper(&scalarType);
+   If &t <> "STRING" And
+         &t <> "NUMBER" And
+         &t <> "BOOLEAN" And
+         &t <> "DATE" And
+         &t <> "DATETIME" And
+         &t <> "TIME" Then
+      throw CreateException(0, 0, "DG_SERIALIZE:Obj:ClassSchema - unknown scalar type '" | &scalarType | "' for " | &path);
+   End-If;
+   Return &t;
+end-method;

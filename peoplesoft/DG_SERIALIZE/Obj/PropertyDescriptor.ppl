@@ -1,0 +1,36 @@
+/* ===========================================================================
+ * DG_SERIALIZE:Obj:PropertyDescriptor
+ *
+ * Describes one public property of an application class for ClassMapper.
+ * Built through the fluent ClassSchema API; you rarely create it directly.
+ *
+ *    Name        the PeopleCode property name (e.g. "HireDate")
+ *    Key         the member name in JSON/XML (defaults to Name)
+ *    Kind        SCALAR | OBJECT | SCALAR_ARRAY | OBJECT_ARRAY | RECORD | ROWSET
+ *    ScalarType  STRING | NUMBER | BOOLEAN | DATE | DATETIME | TIME
+ *    ClassPath   for OBJECT / OBJECT_ARRAY, e.g. "MY_PKG:Model:Address"
+ *    RecordName  for RECORD / ROWSET, e.g. "PERSONAL_DATA"
+ * ========================================================================= */
+
+class PropertyDescriptor
+   method PropertyDescriptor(&name As string, &kind As string);
+
+   property string Name;
+   property string Key;
+   property string Kind;
+   property string ScalarType;
+   property string ClassPath;
+   property string RecordName;
+end-class;
+
+
+method PropertyDescriptor
+   /+ &name as String, +/
+   /+ &kind as String +/
+   %This.Name = &name;
+   %This.Key = &name;
+   %This.Kind = Upper(&kind);
+   %This.ScalarType = "";
+   %This.ClassPath = "";
+   %This.RecordName = "";
+end-method;
