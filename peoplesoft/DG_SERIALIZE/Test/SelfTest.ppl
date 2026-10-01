@@ -145,7 +145,7 @@ method TestJsonParse
    %This.CheckEqual("precision kept", "3.14159265358979323846", &n.GetMember("pi").Text);
    &ok = &n.GetBoolean("ok");
    %This.Check("true", &ok);
-   &ok = Not &n.GetBoolean("no");
+   &ok = (&n.GetBoolean("no") = False);
    %This.Check("false", &ok);
    &ok = &n.GetMember("none").IsNull();
    %This.Check("null", &ok);
@@ -308,7 +308,7 @@ method TestRecord
    /* IncludeEmpty = False drops blanks */
    &ser.Records.IncludeEmpty = False;
    &n = &ser.Records.RecordToNode(&rec);
-   &ok = Not &n.HasMember("LASTUPDOPRID");
+   &ok = (&n.HasMember("LASTUPDOPRID") = False);
    %This.Check("empty omitted", &ok);
 
    /* partial update leaves other fields alone */
