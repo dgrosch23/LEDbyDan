@@ -25,7 +25,7 @@
 import DG_SERIALIZE:Obj:PropertyDescriptor;
 
 class ClassSchema
-   method ClassSchema(&classPath As string);
+   method ClassSchema(&targetClass As string);
 
    property string ClassPath get;
    property number PropertyCount get;
@@ -34,8 +34,8 @@ class ClassSchema
 
    method AddScalar(&propName As string, &scalarType As string);
    method AddScalarArray(&propName As string, &scalarType As string);
-   method AddObject(&propName As string, &classPath As string);
-   method AddObjectArray(&propName As string, &classPath As string);
+   method AddObject(&propName As string, &targetClass As string);
+   method AddObjectArray(&propName As string, &targetClass As string);
    method AddRecord(&propName As string, &recordName As string);
    method AddRowset(&propName As string, &recordName As string);
    method WithKey(&key As string);
@@ -50,8 +50,8 @@ end-class;
 
 
 method ClassSchema
-   /+ &classPath as String +/
-   &path = &classPath;
+   /+ &targetClass as String +/
+   &path = &targetClass;
    &props = CreateArrayAny();
 end-method;
 
@@ -92,17 +92,17 @@ end-method;
 
 method AddObject
    /+ &propName as String, +/
-   /+ &classPath as String +/
+   /+ &targetClass as String +/
    Local DG_SERIALIZE:Obj:PropertyDescriptor &p = create DG_SERIALIZE:Obj:PropertyDescriptor(&propName, "OBJECT");
-   &p.ClassPath = &classPath;
+   &p.ClassPath = &targetClass;
    %This.Append(&p);
 end-method;
 
 method AddObjectArray
    /+ &propName as String, +/
-   /+ &classPath as String +/
+   /+ &targetClass as String +/
    Local DG_SERIALIZE:Obj:PropertyDescriptor &p = create DG_SERIALIZE:Obj:PropertyDescriptor(&propName, "OBJECT_ARRAY");
-   &p.ClassPath = &classPath;
+   &p.ClassPath = &targetClass;
    %This.Append(&p);
 end-method;
 

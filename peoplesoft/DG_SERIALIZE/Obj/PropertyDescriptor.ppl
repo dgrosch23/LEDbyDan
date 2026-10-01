@@ -13,7 +13,7 @@
  * ========================================================================= */
 
 class PropertyDescriptor
-   method PropertyDescriptor(&name As string, &kind As string);
+   method PropertyDescriptor(&propName As string, &propKind As string);
 
    property string Name;
    property string Key;
@@ -25,11 +25,11 @@ end-class;
 
 
 method PropertyDescriptor
-   /+ &name as String, +/
-   /+ &kind as String +/
-   %This.Name = &name;
-   %This.Key = &name;
-   %This.Kind = Upper(&kind);
+   /+ &propName as String, +/
+   /+ &propKind as String +/
+   %This.Name = &propName;
+   %This.Key = &propName;
+   %This.Kind = Upper(&propKind);
    %This.ScalarType = "";
    %This.ClassPath = "";
    %This.RecordName = "";

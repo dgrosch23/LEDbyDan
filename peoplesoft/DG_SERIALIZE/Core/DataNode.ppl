@@ -19,7 +19,7 @@
 import DG_SERIALIZE:Core:IsoDate;
 
 class DataNode
-   method DataNode(&kind As string);
+   method DataNode(&nodeKind As string);
 
    property string Kind get;
    property string Text get;
@@ -33,13 +33,13 @@ class DataNode
    /* ---- scalar setters (they change this node's kind) ---- */
    method SetString(&value As string) Returns DG_SERIALIZE:Core:DataNode;
    method SetNumber(&value As number) Returns DG_SERIALIZE:Core:DataNode;
-   method SetNumberText(&text As string) Returns DG_SERIALIZE:Core:DataNode;
+   method SetNumberText(&textValue As string) Returns DG_SERIALIZE:Core:DataNode;
    method SetBoolean(&value As boolean) Returns DG_SERIALIZE:Core:DataNode;
    method SetDate(&value As date) Returns DG_SERIALIZE:Core:DataNode;
    method SetDateTime(&value As datetime) Returns DG_SERIALIZE:Core:DataNode;
    method SetTime(&value As time) Returns DG_SERIALIZE:Core:DataNode;
    method SetNull() Returns DG_SERIALIZE:Core:DataNode;
-   method SetScalar(&kind As string, &text As string) Returns DG_SERIALIZE:Core:DataNode;
+   method SetScalar(&nodeKind As string, &textValue As string) Returns DG_SERIALIZE:Core:DataNode;
 
    /* ---- scalar getters (coercing) ---- */
    method AsString() Returns string;
@@ -91,14 +91,14 @@ private
    instance DG_SERIALIZE:Core:IsoDate &iso_;
 
    method Iso() Returns DG_SERIALIZE:Core:IsoDate;
-   method RequireKind(&kind As string, &operation As string);
+   method RequireKind(&nodeKind As string, &operation As string);
    method Fail(&message As string);
 end-class;
 
 
 method DataNode
-   /+ &kind as String +/
-   Local string &k = Upper(&kind);
+   /+ &nodeKind as String +/
+   Local string &k = Upper(&nodeKind);
 
    If &k <> "OBJECT" And
          &k <> "ARRAY" And
@@ -109,7 +109,7 @@ method DataNode
          &k <> "DATE" And
          &k <> "DATETIME" And
          &k <> "TIME" Then
-      throw CreateException(0, 0, "DG_SERIALIZE:Core:DataNode - unknown node kind '" | &kind | "'");
+      throw CreateException(0, 0, "DG_SERIALIZE:Core:DataNode - unknown node kind '" | &nodeKind | "'");
    End-If;
 
    &kind_ = &k;
@@ -204,9 +204,9 @@ method SetNumber
 end-method;
 
 method SetNumberText
-   /+ &text as String +/
+   /+ &textValue as String +/
    /+ Returns DG_SERIALIZE:Core:DataNode +/
-   Local string &t = LTrim(RTrim(&text));
+   Local string &t = LTrim(RTrim(&textValue));
    Local number &ePos = Find("E", Upper(&t));
    Local string &expText;
    Local number &mantissa;
@@ -220,7 +220,7 @@ method SetNumberText
       End-If;
       If Not IsNumber(Substring(&t, 1, &ePos - 1)) Or
             Not IsNumber(&expText) Then
-         %This.Fail("invalid number '" | &text | "'");
+         %This.Fail("invalid number '" | &textValue | "'");
       End-If;
       &mantissa = Value(Substring(&t, 1, &ePos - 1));
       &exponent = Value(&expText);
@@ -228,7 +228,7 @@ method SetNumberText
    End-If;
 
    If Not IsNumber(&t) Then
-      %This.Fail("invalid number '" | &text | "'");
+      %This.Fail("invalid number '" | &textValue | "'");
    End-If;
 
    /* keep the original text so no precision is lost */
@@ -290,19 +290,19 @@ method SetNull
 end-method;
 
 method SetScalar
-   /+ &kind as String, +/
-   /+ &text as String +/
+   /+ &nodeKind as String, +/
+   /+ &textValue as String +/
    /+ Returns DG_SERIALIZE:Core:DataNode +/
-   Local string &k = Upper(&kind);
+   Local string &k = Upper(&nodeKind);
    Local string &b;
 
    Evaluate &k
    When "STRING"
-      Return %This.SetString(&text);
+      Return %This.SetString(&textValue);
    When "NUMBER"
-      Return %This.SetNumberText(&text);
+      Return %This.SetNumberText(&textValue);
    When "BOOLEAN"
-      &b = Lower(LTrim(RTrim(&text)));
+      &b = Lower(LTrim(RTrim(&textValue)));
       Return %This.SetBoolean(&b = "true" Or
             &b = "y" Or
             &b = "yes" Or
@@ -310,14 +310,14 @@ method SetScalar
    When "NULL"
       Return %This.SetNull();
    When "DATE"
-      Return %This.SetDate(%This.Iso().ParseDate(&text));
+      Return %This.SetDate(%This.Iso().ParseDate(&textValue));
    When "DATETIME"
-      Return %This.SetDateTime(%This.Iso().ParseDateTime(&text));
+      Return %This.SetDateTime(%This.Iso().ParseDateTime(&textValue));
    When "TIME"
-      Return %This.SetTime(%This.Iso().ParseTime(&text));
+      Return %This.SetTime(%This.Iso().ParseTime(&textValue));
    End-Evaluate;
 
-   %This.Fail("'" | &kind | "' is not a scalar kind");
+   %This.Fail("'" | &nodeKind | "' is not a scalar kind");
    Return %This;
 end-method;
 
@@ -642,10 +642,10 @@ method Iso
 end-method;
 
 method RequireKind
-   /+ &kind as String, +/
+   /+ &nodeKind as String, +/
    /+ &operation as String +/
-   If &kind_ <> &kind Then
-      %This.Fail(&operation | " requires a " | &kind | " node, not " | &kind_);
+   If &kind_ <> &nodeKind Then
+      %This.Fail(&operation | " requires a " | &nodeKind | " node, not " | &kind_);
    End-If;
 end-method;
 
