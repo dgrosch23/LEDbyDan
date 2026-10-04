@@ -449,6 +449,18 @@ method TestClasses
    &copy = &ser.XmlToObject(&ser.ObjectToXml(&emp, "DG_SERIALIZE:Test:Employee"), "DG_SERIALIZE:Test:Employee");
    %This.CheckEqual("xml round trip", &json, &ser.ObjectToJson(&copy, "DG_SERIALIZE:Test:Employee"));
 
+   /* XML without type hints: one element where the schema expects an
+      array (like a single <Student>) must load as a one-item array, into
+      the array the constructor already created */
+   &copy = &ser.XmlToObject("<employee><emplid>KU0002</emplid><skills>SQL</skills><previous><city>Paris</city></previous></employee>", "DG_SERIALIZE:Test:Employee");
+   &ok = (&copy.Skills.Len = 1);
+   %This.Check("single scalar -> array", &ok);
+   %This.CheckEqual("single scalar value", "SQL", &copy.Skills [1]);
+   &ok = (&copy.PreviousAddresses.Len = 1);
+   %This.Check("single object -> array", &ok);
+   &a = &copy.PreviousAddresses [1];
+   %This.CheckEqual("single object value", "Paris", &a.City);
+
    /* null nested object */
    &emp.HomeAddress = Null;
    &n = &ser.Classes.ToNode(&emp, "DG_SERIALIZE:Test:Employee");

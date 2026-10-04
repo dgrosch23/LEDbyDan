@@ -221,9 +221,17 @@ inside a schema-mapped class. See `Test:Money`, which serializes to
 * Compiled and tested on PeopleTools 8.62.06, where `Test:SelfTest` passes
   all 78 checks. Rerun it after importing into another environment or
   release.
-* Deserialized **object arrays** are created as `array of any`. Declare those
-  properties as `array of any` (or `array of object`). Scalar arrays are
-  typed (`array of string`, `array of number`, ...).
+* **Array properties:** if the class constructor creates the array, the
+  mapper empties and refills that array, so typed properties such as
+  `property array of MY_PKG:Model:Address Addresses;` work. Create it in
+  the constructor, for example
+  `%This.Addresses = CreateArrayRept(create MY_PKG:Model:Address(), 0);`.
+  If the property is Null, the mapper assigns a new array instead: typed
+  for scalars, `array of any` for objects. In that case declare
+  object-array properties as `array of any`.
+* **A single value where an array is expected** is loaded as a one-item
+  array. XML without type hints needs this, because one `<Student>` element
+  looks the same as a plain object.
 * Time zones in ISO datetimes are ignored (the value is read as local
   time), and fractional seconds are truncated.
 * XML attributes other than the `dg_*` hint attributes aren't mapped on

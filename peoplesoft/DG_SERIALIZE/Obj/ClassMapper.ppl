@@ -16,10 +16,16 @@
  *    Local DG_SERIALIZE:Core:DataNode &n = &m.ToNode(&emp, "MY_PKG:Model:Employee");
  *    Local MY_PKG:Model:Employee &copy = &m.FromNode(&n, "MY_PKG:Model:Employee");
  *
- * Deserialized arrays: scalar arrays are created as typed arrays (array of
- * string / number / boolean / date ...). Object arrays are created as
- * "array of any", so declare such properties as array of any or
- * array of object.
+ * Deserialized arrays:
+ *    - If the property already holds an array (typically created by the
+ *      class constructor), that array is emptied and refilled, so typed
+ *      properties such as "array of MY_PKG:Model:Address" work.
+ *    - Otherwise a new array is assigned: a typed array for scalars
+ *      (array of string / number / ...) or "array of any" for objects, so
+ *      an object-array property must then be declared array of any.
+ *    - A single value where the schema expects an array (common in XML,
+ *      where one <Student> element is not distinguishable from an object)
+ *      is loaded as a one-item array.
  * ========================================================================= */
 import DG_SERIALIZE:Core:DataNode;
 import DG_SERIALIZE:Core:Serializable;
@@ -50,6 +56,8 @@ private
    method ScalarToNode(&value As any, &type As string) Returns DG_SERIALIZE:Core:DataNode;
    method NodeToScalar(&node As DG_SERIALIZE:Core:DataNode, &type As string) Returns any;
    method EmptyArrayFor(&type As string) Returns any;
+   method AsArray(&node As DG_SERIALIZE:Core:DataNode) Returns DG_SERIALIZE:Core:DataNode;
+   method RefillArray(&target As any, &node As DG_SERIALIZE:Core:DataNode, &p As DG_SERIALIZE:Obj:PropertyDescriptor);
    method Fail(&message As string);
 end-class;
 
@@ -245,6 +253,7 @@ method Populate
    Local DG_SERIALIZE:Obj:ClassSchema &schema = %This.FindSchema(&classPath);
    Local DG_SERIALIZE:Obj:PropertyDescriptor &p;
    Local DG_SERIALIZE:Core:DataNode &member;
+   Local any &existing;
    Local number &i;
 
    If &schema = Null Then
@@ -258,7 +267,19 @@ method Populate
       &p = &schema.PropertyAt(&i);
       &member = &node.GetMember(&p.Key);
       If &member <> Null Then
-         ObjectSetProperty(&obj, &p.Name, %This.NodeToPropertyValue(&member, &p));
+         /* reuse an array the constructor already created (keeps its type) */
+         &existing = Null;
+         If &p.Kind = "SCALAR_ARRAY" Or
+               &p.Kind = "OBJECT_ARRAY" Then
+            If &member.IsNull() = False Then
+               &existing = ObjectGetProperty(&obj, &p.Name);
+            End-If;
+         End-If;
+         If &existing <> Null Then
+            %This.RefillArray(&existing, &member, &p);
+         Else
+            ObjectSetProperty(&obj, &p.Name, %This.NodeToPropertyValue(&member, &p));
+         End-If;
       End-If;
    End-For;
 end-method;
@@ -272,7 +293,6 @@ method NodeToPropertyValue
    Local array of any &objects;
    Local Record &rec;
    Local Rowset &rs;
-   Local number &i;
 
    If &p.Kind = "SCALAR" Then
       Return %This.NodeToScalar(&node, &p.ScalarType);
@@ -288,23 +308,13 @@ method NodeToPropertyValue
       Return %This.FromNode(&node, &p.ClassPath);
 
    When "SCALAR_ARRAY"
-      If Not &node.IsArray() Then
-         %This.Fail("property " | &p.Name | " expects an ARRAY, got " | &node.Kind);
-      End-If;
       &arr = %This.EmptyArrayFor(&p.ScalarType);
-      For &i = 1 To &node.Count
-         &arr.Push(%This.NodeToScalar(&node.ValueAt(&i), &p.ScalarType));
-      End-For;
+      %This.RefillArray(&arr, &node, &p);
       Return &arr;
 
    When "OBJECT_ARRAY"
-      If Not &node.IsArray() Then
-         %This.Fail("property " | &p.Name | " expects an ARRAY, got " | &node.Kind);
-      End-If;
       &objects = CreateArrayAny();
-      For &i = 1 To &node.Count
-         &objects.Push(%This.FromNode(&node.ValueAt(&i), &p.ClassPath));
-      End-For;
+      %This.RefillArray(&objects, &node, &p);
       Return &objects;
 
    When "RECORD"
@@ -367,6 +377,44 @@ method EmptyArrayFor
       Return CreateArrayRept(&t, 0);
    End-Evaluate;
    Return CreateArrayAny();
+end-method;
+
+
+method AsArray
+   /+ &node as DG_SERIALIZE:Core:DataNode +/
+   /+ Returns DG_SERIALIZE:Core:DataNode +/
+   /* a single value where an array is expected becomes a one-item array */
+   Local DG_SERIALIZE:Core:DataNode &list;
+
+   If &node.IsArray() Then
+      Return &node;
+   End-If;
+   &list = create DG_SERIALIZE:Core:DataNode("ARRAY");
+   &list.Add(&node);
+   Return &list;
+end-method;
+
+
+method RefillArray
+   /+ &target as Any, +/
+   /+ &node as DG_SERIALIZE:Core:DataNode, +/
+   /+ &p as DG_SERIALIZE:Obj:PropertyDescriptor +/
+   /* empties &target, then pushes the converted items of &node into it */
+   Local DG_SERIALIZE:Core:DataNode &items = %This.AsArray(&node);
+   Local any &dropped;
+   Local number &i;
+
+   While &target.Len > 0
+      &dropped = &target.Pop();
+   End-While;
+
+   For &i = 1 To &items.Count
+      If &p.Kind = "SCALAR_ARRAY" Then
+         &target.Push(%This.NodeToScalar(&items.ValueAt(&i), &p.ScalarType));
+      Else
+         &target.Push(%This.FromNode(&items.ValueAt(&i), &p.ClassPath));
+      End-If;
+   End-For;
 end-method;
 
 
