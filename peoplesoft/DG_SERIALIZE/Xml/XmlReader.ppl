@@ -9,6 +9,9 @@
  *    - child elements with a repeated name   -> ARRAY under that name
  *    - an element with only text             -> STRING
  *
+ * The <?xml ...?> declaration is optional: it is added when missing,
+ * because ParseXmlString requires it.
+ *
  * The root element's name is not part of the result; it is available
  * afterwards in LastRootName. Attributes other than the dg_* hint
  * attributes are not mapped.
@@ -31,6 +34,7 @@ private
    instance string &rootName;
 
    method ReadMembers(&elements As array of any, &collapseRepeats As boolean) Returns DG_SERIALIZE:Core:DataNode;
+   method Normalize(&xml As string) Returns string;
 end-class;
 
 
@@ -54,7 +58,7 @@ method Read
    Local boolean &ok;
 
    try
-      &ok = &doc.ParseXmlString(&xml);
+      &ok = &doc.ParseXmlString(%This.Normalize(&xml));
    catch Exception &ex
       throw CreateException(0, 0, "DG_SERIALIZE:Xml:XmlReader - XML parse error: " | &ex.ToString());
    end-try;
@@ -63,6 +67,36 @@ method Read
    End-If;
 
    Return %This.ReadDoc(&doc);
+end-method;
+
+
+method Normalize
+   /+ &xml as String +/
+   /+ Returns String +/
+   /* ParseXmlString rejects a document without an <?xml ...?> declaration,
+      or with whitespace / a byte-order mark before it, so tidy those up */
+   Local number &start = 1;
+   Local number &n = Len(&xml);
+   Local number &code;
+   Local string &text;
+
+   While &start <= &n
+      &code = Code(Substring(&xml, &start, 1));
+      If &code <> 32 And
+            &code <> 9 And
+            &code <> 10 And
+            &code <> 13 And
+            &code <> 65279 Then
+         Break;
+      End-If;
+      &start = &start + 1;
+   End-While;
+
+   &text = Substring(&xml, &start, &n - &start + 1);
+   If Substring(&text, 1, 5) <> "<?xml" Then
+      &text = "<?xml version=""1.0""?>" | &text;
+   End-If;
+   Return &text;
 end-method;
 
 

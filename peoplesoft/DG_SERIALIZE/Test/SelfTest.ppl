@@ -248,6 +248,10 @@ method TestXmlInference
    %This.CheckEqual("nested", "Madison", &n.GetMember("addr").GetString("city"));
    %This.CheckEqual("CDATA", "a < b", &n.GetString("bio"));
 
+   /* no <?xml ...?> declaration and leading whitespace are accepted */
+   &n = &ser.FromXml("  " | Char(10) | "<a><b>1</b></a>");
+   %This.CheckEqual("no declaration", "1", &n.GetString("b"));
+
    &ser.XmlOut.TypeHints = False;
    &ser.XmlOut.RootName = "employee";
    &ok = (Find("dg_type", &ser.ToXml(&n)) = 0);
