@@ -227,8 +227,10 @@ inside a schema-mapped class. See `Test:Money`, which serializes to
   the constructor, for example
   `%This.Addresses = CreateArrayRept(create MY_PKG:Model:Address(), 0);`.
   If the property is Null, the mapper assigns a new array instead: typed
-  for scalars, `array of any` for objects. In that case declare
-  object-array properties as `array of any`.
+  for scalars, `array of any` for objects. If that assignment fails for an
+  object array, the mapper retries with an array typed from a sample
+  instance. If that also fails, the error names the property to create in
+  the constructor (or declare as `array of any`).
 * **A single value where an array is expected** is loaded as a one-item
   array. XML without type hints needs this, because one `<Student>` element
   looks the same as a plain object.

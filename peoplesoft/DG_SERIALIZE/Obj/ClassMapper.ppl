@@ -63,6 +63,7 @@ private
    method EmptyArrayFor(&type As string) Returns any;
    method AsArray(&node As DG_SERIALIZE:Core:DataNode) Returns DG_SERIALIZE:Core:DataNode;
    method RefillArray(&target As any, &node As DG_SERIALIZE:Core:DataNode, &p As DG_SERIALIZE:Obj:PropertyDescriptor);
+   method AssignValue(&obj As object, &p As DG_SERIALIZE:Obj:PropertyDescriptor, &member As DG_SERIALIZE:Core:DataNode);
    method Fail(&message As string);
 end-class;
 
@@ -291,7 +292,7 @@ method Populate
          If &existing <> Null Then
             %This.RefillArray(&existing, &member, &p);
          Else
-            ObjectSetProperty(&obj, &p.Name, %This.NodeToPropertyValue(&member, &p));
+            %This.AssignValue(&obj, &p, &member);
          End-If;
       End-If;
    End-For;
@@ -439,6 +440,41 @@ method MissingSchemaMessage
       &known = &paths.Join(", ", "", "");
    End-If;
    Return "no ClassSchema is registered for '" | &classPath | "' and it does not implement Serializable. Describe it with a ClassSchema and call Register(). Registered: " | &known;
+end-method;
+
+
+method AssignValue
+   /+ &obj as Object, +/
+   /+ &p as DG_SERIALIZE:Obj:PropertyDescriptor, +/
+   /+ &member as DG_SERIALIZE:Core:DataNode +/
+   /* Sets one property. An object array is built as "array of any", which
+      PeopleCode will not assign to a property typed "array of SomeClass";
+      in that case retry with an array typed from a sample instance. */
+   Local any &value = %This.NodeToPropertyValue(&member, &p);
+   Local any &typed;
+   Local object &sample;
+
+   If &p.Kind <> "OBJECT_ARRAY" Then
+      ObjectSetProperty(&obj, &p.Name, &value);
+      Return;
+   End-If;
+   If &value = Null Then
+      ObjectSetProperty(&obj, &p.Name, &value);
+      Return;
+   End-If;
+
+   try
+      ObjectSetProperty(&obj, &p.Name, &value);
+   catch Exception &untyped
+      try
+         &sample = CreateObject(&p.ClassPath);
+         &typed = CreateArrayRept(&sample, 0);
+         %This.RefillArray(&typed, &member, &p);
+         ObjectSetProperty(&obj, &p.Name, &typed);
+      catch Exception &stillUntyped
+         %This.Fail("cannot assign an array to property " | &p.Name | " (declared as a typed array of " | &p.ClassPath | "). Create the array in the class constructor, e.g. %This." | &p.Name | " = CreateArrayRept(create " | &p.ClassPath | "(), 0); or declare the property as array of any.");
+      end-try;
+   end-try;
 end-method;
 
 
