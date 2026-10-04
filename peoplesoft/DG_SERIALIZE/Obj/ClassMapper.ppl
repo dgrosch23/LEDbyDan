@@ -3,6 +3,10 @@
  *
  * Converts application class instances to and from DataNode trees.
  *
+ * Class paths are matched case-insensitively. Every class that appears
+ * anywhere in the tree (nested objects, object arrays) needs its own
+ * registered schema unless it implements Serializable.
+ *
  * Resolution for a class path:
  *    1. a ClassSchema registered for it  -> properties are read/written with
  *       ObjectGetProperty / ObjectSetProperty (works on classes you cannot
@@ -51,6 +55,7 @@ private
    instance array of any &schemas;
 
    method FindSchema(&classPath As string) Returns DG_SERIALIZE:Obj:ClassSchema;
+   method MissingSchemaMessage(&classPath As string) Returns string;
    method PropertyToNode(&value As any, &p As DG_SERIALIZE:Obj:PropertyDescriptor) Returns DG_SERIALIZE:Core:DataNode;
    method NodeToPropertyValue(&node As DG_SERIALIZE:Core:DataNode, &p As DG_SERIALIZE:Obj:PropertyDescriptor) Returns any;
    method ScalarToNode(&value As any, &type As string) Returns DG_SERIALIZE:Core:DataNode;
@@ -72,11 +77,11 @@ end-method;
 
 method Register
    /+ &schema as DG_SERIALIZE:Obj:ClassSchema +/
-   Local number &idx = &paths.Find(&schema.ClassPath);
+   Local number &idx = &paths.Find(Upper(&schema.ClassPath));
    If &idx > 0 Then
       &schemas [&idx] = &schema;
    Else
-      &paths.Push(&schema.ClassPath);
+      &paths.Push(Upper(&schema.ClassPath));
       &schemas.Push(&schema);
    End-If;
 end-method;
@@ -85,7 +90,7 @@ end-method;
 method IsRegistered
    /+ &classPath as String +/
    /+ Returns Boolean +/
-   Return (&paths.Find(&classPath) > 0);
+   Return (&paths.Find(Upper(&classPath)) > 0);
 end-method;
 
 
@@ -111,7 +116,11 @@ method ToNode
 
    &schema = %This.FindSchema(&classPath);
    If &schema = Null Then
-      &custom = &obj;
+      try
+         &custom = &obj;
+      catch Exception &notCustom
+         %This.Fail(%This.MissingSchemaMessage(&classPath));
+      end-try;
       Return &custom.ToNode();
    End-If;
 
@@ -234,7 +243,11 @@ method FromNode
    &obj = CreateObject(&classPath);
 
    If %This.FindSchema(&classPath) = Null Then
-      &custom = &obj;
+      try
+         &custom = &obj;
+      catch Exception &notCustom
+         %This.Fail(%This.MissingSchemaMessage(&classPath));
+      end-try;
       &custom.FromNode(&node);
       Return &obj;
    End-If;
@@ -418,10 +431,21 @@ method RefillArray
 end-method;
 
 
+method MissingSchemaMessage
+   /+ &classPath as String +/
+   /+ Returns String +/
+   Local string &known = "none";
+   If &paths.Len > 0 Then
+      &known = &paths.Join(", ", "", "");
+   End-If;
+   Return "no ClassSchema is registered for '" | &classPath | "' and it does not implement Serializable. Describe it with a ClassSchema and call Register(). Registered: " | &known;
+end-method;
+
+
 method FindSchema
    /+ &classPath as String +/
    /+ Returns DG_SERIALIZE:Obj:ClassSchema +/
-   Local number &idx = &paths.Find(&classPath);
+   Local number &idx = &paths.Find(Upper(&classPath));
    If &idx = 0 Then
       Return Null;
    End-If;

@@ -368,6 +368,8 @@ method TestClasses
    Local DG_SERIALIZE:Test:Address &a;
    Local DG_SERIALIZE:Core:DataNode &n;
    Local string &json;
+   Local string &msg;
+   Local DG_SERIALIZE:Serializer &plain = %This.NewSerializer();
 
    %This.Section("Application classes");
 
@@ -470,6 +472,20 @@ method TestClasses
    &n = &ser.Classes.ToNode(&emp, "DG_SERIALIZE:Test:Employee");
    &ok = &n.GetMember("home").IsNull();
    %This.Check("null object", &ok);
+
+   /* class paths are matched case-insensitively */
+   &ok = &ser.Classes.IsRegistered(Lower("DG_SERIALIZE:Test:Address"));
+   %This.Check("case-insensitive class path", &ok);
+
+   /* a class with no schema that is not Serializable gets a clear error */
+   &msg = "";
+   try
+      &a = &plain.JsonToObject("{}", "DG_SERIALIZE:Test:Address");
+   catch Exception &noSchema
+      &msg = &noSchema.ToString();
+   end-try;
+   &ok = (Find("no ClassSchema is registered", &msg) > 0);
+   %This.Check("missing schema message", &ok);
 end-method;
 
 
