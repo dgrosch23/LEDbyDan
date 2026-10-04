@@ -221,16 +221,13 @@ inside a schema-mapped class. See `Test:Money`, which serializes to
 * Compiled and tested on PeopleTools 8.62.06, where `Test:SelfTest` passes
   all 78 checks. Rerun it after importing into another environment or
   release.
-* **Array properties:** if the class constructor creates the array, the
-  mapper empties and refills that array, so typed properties such as
-  `property array of MY_PKG:Model:Address Addresses;` work. Create it in
-  the constructor, for example
-  `%This.Addresses = CreateArrayRept(create MY_PKG:Model:Address(), 0);`.
-  If the property is Null, the mapper assigns a new array instead: typed
-  for scalars, `array of any` for objects. If that assignment fails for an
-  object array, the mapper retries with an array typed from a sample
-  instance. If that also fails, the error names the property to create in
-  the constructor (or declare as `array of any`).
+* **Array properties:** typed properties such as
+  `property array of MY_PKG:Model:Address Addresses;` work without changes
+  to the class. If the constructor already created the array, the mapper
+  empties and refills it. If the property is Null, the mapper builds an
+  array typed from a sample instance (`CreateArrayRept(<instance>, 0)`)
+  and assigns that. Verified on PeopleTools 8.62 with PESC classes.
+  `array of any` properties work too.
 * **A single value where an array is expected** is loaded as a one-item
   array. XML without type hints needs this, because one `<Student>` element
   looks the same as a plain object.
