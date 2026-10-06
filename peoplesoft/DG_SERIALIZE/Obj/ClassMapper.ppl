@@ -64,6 +64,8 @@ private
    method AsArray(&node As DG_SERIALIZE:Core:DataNode) Returns DG_SERIALIZE:Core:DataNode;
    method RefillArray(&target As any, &node As DG_SERIALIZE:Core:DataNode, &p As DG_SERIALIZE:Obj:PropertyDescriptor);
    method AssignValue(&obj As object, &p As DG_SERIALIZE:Obj:PropertyDescriptor, &member As DG_SERIALIZE:Core:DataNode);
+   method ReadProperty(&obj As object, &p As DG_SERIALIZE:Obj:PropertyDescriptor, &classPath As string) Returns any;
+   method WriteProperty(&obj As object, &p As DG_SERIALIZE:Obj:PropertyDescriptor, &value As any);
    method Fail(&message As string);
 end-class;
 
@@ -128,7 +130,7 @@ method ToNode
    &out = create DG_SERIALIZE:Core:DataNode("OBJECT");
    For &i = 1 To &schema.PropertyCount
       &p = &schema.PropertyAt(&i);
-      &value = ObjectGetProperty(&obj, &p.Name);
+      &value = %This.ReadProperty(&obj, &p, &classPath);
       &member = %This.PropertyToNode(&value, &p);
       If Not (%This.SkipNullObjects And
             &member.IsNull()) Then
@@ -286,7 +288,7 @@ method Populate
          If &p.Kind = "SCALAR_ARRAY" Or
                &p.Kind = "OBJECT_ARRAY" Then
             If &member.IsNull() = False Then
-               &existing = ObjectGetProperty(&obj, &p.Name);
+               &existing = %This.ReadProperty(&obj, &p, &classPath);
             End-If;
          End-If;
          If &existing <> Null Then
@@ -443,6 +445,35 @@ method MissingSchemaMessage
 end-method;
 
 
+method ReadProperty
+   /+ &obj as Object, +/
+   /+ &p as DG_SERIALIZE:Obj:PropertyDescriptor, +/
+   /+ &classPath as String +/
+   /+ Returns Any +/
+   /* ObjectGetProperty with an error that names the schema entry */
+   Local any &value;
+   try
+      &value = ObjectGetProperty(&obj, &p.Name);
+   catch Exception &noProperty
+      %This.Fail("the schema for " | &classPath | " lists property '" | &p.Name | "', but the class has no public property by that name. The first argument of AddScalar/AddObject/... must be the PeopleCode property name; use WithKey() for a different JSON/XML name. (" | &noProperty.ToString() | ")");
+   end-try;
+   Return &value;
+end-method;
+
+
+method WriteProperty
+   /+ &obj as Object, +/
+   /+ &p as DG_SERIALIZE:Obj:PropertyDescriptor, +/
+   /+ &value as Any +/
+   /* ObjectSetProperty with an error that names the schema entry */
+   try
+      ObjectSetProperty(&obj, &p.Name, &value);
+   catch Exception &cannotSet
+      %This.Fail("cannot set property '" | &p.Name | "' (member '" | &p.Key | "'): check that the class has a public, settable property by that name and that its type matches the schema. (" | &cannotSet.ToString() | ")");
+   end-try;
+end-method;
+
+
 method AssignValue
    /+ &obj as Object, +/
    /+ &p as DG_SERIALIZE:Obj:PropertyDescriptor, +/
@@ -455,11 +486,11 @@ method AssignValue
    Local object &sample;
 
    If &p.Kind <> "OBJECT_ARRAY" Then
-      ObjectSetProperty(&obj, &p.Name, &value);
+      %This.WriteProperty(&obj, &p, &value);
       Return;
    End-If;
    If &value = Null Then
-      ObjectSetProperty(&obj, &p.Name, &value);
+      %This.WriteProperty(&obj, &p, &value);
       Return;
    End-If;
 

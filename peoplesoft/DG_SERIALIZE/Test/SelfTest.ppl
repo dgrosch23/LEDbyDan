@@ -370,6 +370,7 @@ method TestClasses
    Local string &json;
    Local string &msg;
    Local DG_SERIALIZE:Serializer &plain = %This.NewSerializer();
+   Local DG_SERIALIZE:Obj:ClassSchema &badSchema;
 
    %This.Section("Application classes");
 
@@ -486,6 +487,19 @@ method TestClasses
    end-try;
    &ok = (Find("no ClassSchema is registered", &msg) > 0);
    %This.Check("missing schema message", &ok);
+
+   /* a schema entry naming a property the class does not have */
+   &badSchema = create DG_SERIALIZE:Obj:ClassSchema("DG_SERIALIZE:Test:Address");
+   &badSchema.AddScalar("NoSuchProperty", "STRING");
+   &plain.Register(&badSchema);
+   &msg = "";
+   try
+      &json = &plain.ObjectToJson(create DG_SERIALIZE:Test:Address(), "DG_SERIALIZE:Test:Address");
+   catch Exception &noProp
+      &msg = &noProp.ToString();
+   end-try;
+   &ok = (Find("has no public property", &msg) > 0);
+   %This.Check("unknown property message", &ok);
 end-method;
 
 
