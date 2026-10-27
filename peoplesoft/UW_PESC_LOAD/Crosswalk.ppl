@@ -147,8 +147,10 @@ method TryOrg
    /+ &qualifier as String, +/
    /+ &code as String +/
    /+ Returns String +/
-   If None(LTrim(RTrim(&code))) Then
+   Local string &trimmed = LTrim(RTrim(&code));
+
+   If None(&trimmed) Then
       Return "";
    End-If;
-   Return %This.Lookup("EXT_ORG", &qualifier | ":" | LTrim(RTrim(&code)));
+   Return %This.Lookup("EXT_ORG", &qualifier | ":" | &trimmed);
 end-method;

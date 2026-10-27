@@ -25,6 +25,7 @@ import UW_PESC:AcademicHonorsType;
 import UW_PESC:AcademicProgramType;
 import UW_PESC:CourseType;
 import UW_PESC_LOAD:Config;
+import UW_PESC_LOAD:Check;
 import UW_PESC_LOAD:Crosswalk;
 import UW_PESC_LOAD:LoadResult;
 import UW_PESC_LOAD:RecordContext;
@@ -38,6 +39,7 @@ private
    instance UW_PESC_LOAD:Config &cfg;
    instance UW_PESC_LOAD:Crosswalk &xw;
    instance UW_PESC_LOAD:LoadResult &res;
+   instance UW_PESC_LOAD:Check &chk;
    instance boolean &orgIsNew;
    instance integer &pendingCourses;
    instance integer &pendingDegrees;
@@ -60,6 +62,7 @@ method ExtEducationLoader
    &cfg = &config;
    &xw = &xwalk;
    &res = &result;
+   &chk = create UW_PESC_LOAD:Check();
 end-method;
 
 method Load
@@ -74,7 +77,7 @@ method Load
    &ci = %Session.GetCompIntfc(CompIntfc.UW_ACAD_HIST_PERS);
    If &ci = Null Then
       &res.AddPSMessages(&idx, "GetCompIntfc UW_ACAD_HIST_PERS");
-      &res.Error(&idx, "Could not get component interface UW_ACAD_HIST_PERS.");
+      &res.Err(&idx, "Could not get component interface UW_ACAD_HIST_PERS.");
       Return False;
    End-If;
 
@@ -85,7 +88,7 @@ method Load
 
    If Not &ci.Get() Then
       &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS.Get");
-      &res.Error(&idx, "UW_ACAD_HIST_PERS Get failed for EMPLID " | &ctx.Emplid | ".");
+      &res.Err(&idx, "UW_ACAD_HIST_PERS Get failed for EMPLID " | &ctx.Emplid | ".");
       Return False;
    End-If;
 
@@ -110,13 +113,13 @@ method Load
 
       If Not &ci.Save() Then
          &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS.Save");
-         &res.Error(&idx, "UW_ACAD_HIST_PERS Save failed. Nothing was saved for EXT_ORG_ID " | &ctx.ExtOrgId | ".");
+         &res.Err(&idx, "UW_ACAD_HIST_PERS Save failed. Nothing was saved for EXT_ORG_ID " | &ctx.ExtOrgId | ".");
          &ci.Cancel();
          Return False;
       End-If;
    catch Exception &e
       &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS");
-      &res.Error(&idx, "UW_ACAD_HIST_PERS load stopped: " | &e.ToString());
+      &res.Err(&idx, "UW_ACAD_HIST_PERS load stopped: " | &e.ToString());
       &ci.Cancel();
       Return False;
    end-try;
@@ -152,7 +155,7 @@ method FindOrAddOrg
    /* a student with no external education has one blank row */
    If &orgColl.Count = 1 Then
       &row = &orgColl.Item(1);
-      If None(&row.EXT_ORG_ID) Then
+      If &chk.IsBlank(&row.EXT_ORG_ID) Then
          &row.EXT_ORG_ID = &extOrgId;
          Return &row;
       End-If;
@@ -170,22 +173,22 @@ method SetOrgDefaults
       EXT_DEGREE rows copy. Set them before inserting child rows. */
    &org.EXT_CAREER = &ctx.ExtCareer;
    &org.EXT_DATA_NBR = &ctx.ExtDataNbr;
-   If All(&cfg.Institution) Then
+   If &chk.IsSet(&cfg.Institution) Then
       &org.INSTITUTION = &cfg.Institution;
    End-If;
-   If All(&cfg.DataSource) Then
+   If &chk.IsSet(&cfg.DataSource) Then
       &org.LS_DATA_SOURCE_0 = &cfg.DataSource;
    End-If;
-   If All(&ctx.UnitType) Then
+   If &chk.IsSet(&ctx.UnitType) Then
       &org.UNT_TYPE = &ctx.UnitType;
    End-If;
-   If All(&ctx.AsOfExtTermType) Then
+   If &chk.IsSet(&ctx.AsOfExtTermType) Then
       &org.EXT_TERM_TYPE = &ctx.AsOfExtTermType;
    End-If;
-   If All(&cfg.ExtGradingScheme) Then
+   If &chk.IsSet(&cfg.ExtGradingScheme) Then
       &org.GRADING_SCHEME = &cfg.ExtGradingScheme;
    End-If;
-   If All(&cfg.ExtGradingBasis) Then
+   If &chk.IsSet(&cfg.ExtGradingBasis) Then
       &org.GRADING_BASIS = &cfg.ExtGradingBasis;
    End-If;
 end-method;
@@ -205,34 +208,34 @@ method FillAcadData
    &data.TRANSCRIPT_FLAG = "Y";
    &data.TRANSCRIPT_DT = &ctx.TranscriptDt;
    &data.RECEIVED_DT = %Date;
-   If All(&ctx.TranscriptType) Then
+   If &chk.IsSet(&ctx.TranscriptType) Then
       &data.TRANSCRIPT_TYPE = &ctx.TranscriptType;
    End-If;
-   If All(&cfg.TranscriptStatus) Then
+   If &chk.IsSet(&cfg.TranscriptStatus) Then
       &data.TRNSCRPT_STATUS = &cfg.TranscriptStatus;
    End-If;
-   If All(&cfg.DataSource) Then
+   If &chk.IsSet(&cfg.DataSource) Then
       &data.LS_DATA_SOURCE_1 = &cfg.DataSource;
    End-If;
-   If All(&cfg.DataMedium) Then
+   If &chk.IsSet(&cfg.DataMedium) Then
       &data.DATA_MEDIUM = &cfg.DataMedium;
    End-If;
-   If All(&ctx.ExtAcadLevel) Then
+   If &chk.IsSet(&ctx.ExtAcadLevel) Then
       &data.EXT_ACAD_LEVEL_0 = &ctx.ExtAcadLevel;
    End-If;
-   If All(&ctx.AsOfExtTermType) Then
+   If &chk.IsSet(&ctx.AsOfExtTermType) Then
       &data.EXT_TERM_TYPE_0 = &ctx.AsOfExtTermType;
    End-If;
-   If All(&ctx.AsOfExtTerm) Then
+   If &chk.IsSet(&ctx.AsOfExtTerm) Then
       &data.EXT_TERM_0 = &ctx.AsOfExtTerm;
    End-If;
    If &ctx.AsOfTermYear > 0 Then
       &data.TERM_YEAR_0 = &ctx.AsOfTermYear;
    End-If;
-   If All(&ctx.FromDt) Then
+   If &chk.IsSet(&ctx.FromDt) Then
       &data.FROM_DT = &ctx.FromDt;
    End-If;
-   If All(&ctx.ToDt) Then
+   If &chk.IsSet(&ctx.ToDt) Then
       &data.TO_DT = &ctx.ToDt;
    End-If;
 end-method;
@@ -271,7 +274,7 @@ method FillSummaries
 
                &row = Null;
                If &sumColl.Count = 1 Then
-                  If None(&sumColl.Item(1).EXT_SUMM_TYPE) Then
+                  If &chk.IsBlank(&sumColl.Item(1).EXT_SUMM_TYPE) Then
                      &row = &sumColl.Item(1);
                   End-If;
                End-If;
@@ -280,16 +283,16 @@ method FillSummaries
                End-If;
 
                &row.EXT_SUMM_TYPE = &summType;
-               If All(&cfg.Institution) Then
+               If &chk.IsSet(&cfg.Institution) Then
                   &row.INSTITUTION_0 = &cfg.Institution;
                End-If;
-               If All(&ctx.ExtAcadLevel) Then
+               If &chk.IsSet(&ctx.ExtAcadLevel) Then
                   &row.EXT_ACAD_LEVEL_1 = &ctx.ExtAcadLevel;
                End-If;
                If &ctx.AsOfTermYear > 0 Then
                   &row.TERM_YEAR_1 = &ctx.AsOfTermYear;
                End-If;
-               If All(&ctx.AsOfExtTerm) Then
+               If &chk.IsSet(&ctx.AsOfExtTerm) Then
                   &row.EXT_TERM_1 = &ctx.AsOfExtTerm;
                End-If;
 
@@ -337,14 +340,14 @@ method FillCourses
       &item = &ctx.Courses [&i];
       &c = &item.Course;
 
-      If All(&item.SkipReason) Then
+      If &chk.IsSet(&item.SkipReason) Then
          &res.Info(&idx, "Course " | &c.CourseSubjectAbbreviation | " " | &c.CourseNumber | " skipped: " | &item.SkipReason);
       Else
          /* a new org row comes with one blank course row */
          &row = Null;
          If &crseColl.Count = 1 Then
-            If None(&crseColl.Item(1).SCHOOL_SUBJECT) And
-                  None(&crseColl.Item(1).DESCR_0) Then
+            If &chk.IsBlank(&crseColl.Item(1).SCHOOL_SUBJECT) And
+                  &chk.IsBlank(&crseColl.Item(1).DESCR_0) Then
                &row = &crseColl.Item(1);
             End-If;
          End-If;
@@ -355,22 +358,22 @@ method FillCourses
          /* keys and term first: later fields may edit against them */
          &row.EXT_CAREER_0 = &ctx.ExtCareer;
          &row.EXT_DATA_NBR_0 = &ctx.ExtDataNbr;
-         If All(&cfg.Institution) Then
+         If &chk.IsSet(&cfg.Institution) Then
             &row.INSTITUTION_2 = &cfg.Institution;
          End-If;
-         If All(&item.ExtTermType) Then
+         If &chk.IsSet(&item.ExtTermType) Then
             &row.EXT_TERM_TYPE_1 = &item.ExtTermType;
          End-If;
          If &item.TermYear > 0 Then
             &row.TERM_YEAR_2 = &item.TermYear;
          End-If;
-         If All(&item.ExtTerm) Then
+         If &chk.IsSet(&item.ExtTerm) Then
             &row.EXT_TERM_2 = &item.ExtTerm;
          End-If;
-         If All(&item.BeginDt) Then
+         If &chk.IsSet(&item.BeginDt) Then
             &row.BEGIN_DT_0 = &item.BeginDt;
          End-If;
-         If All(&item.EndDt) Then
+         If &chk.IsSet(&item.EndDt) Then
             &row.END_DT_0 = &item.EndDt;
          End-If;
 
@@ -378,18 +381,18 @@ method FillCourses
          &row.SCHOOL_CRSE_NBR = Upper(&c.CourseNumber);
          &row.DESCR_0 = Left(&c.CourseTitle, &cfg.DescrLength);
 
-         If All(&item.UnitType) Then
+         If &chk.IsSet(&item.UnitType) Then
             &row.UNT_TYPE_2 = &item.UnitType;
          End-If;
          &row.UNT_TAKEN_0 = &c.CourseCreditValue;
 
-         If All(&cfg.ExtGradingScheme) Then
+         If &chk.IsSet(&cfg.ExtGradingScheme) Then
             &row.GRADING_SCHEME_0 = &cfg.ExtGradingScheme;
          End-If;
-         If All(&cfg.ExtGradingBasis) Then
+         If &chk.IsSet(&cfg.ExtGradingBasis) Then
             &row.GRADING_BASIS_0 = &cfg.ExtGradingBasis;
          End-If;
-         If All(&c.CourseAcademicGrade) Then
+         If &chk.IsSet(&c.CourseAcademicGrade) Then
             &row.CRSE_GRADE_INPUT = Upper(&c.CourseAcademicGrade);
          End-If;
 
@@ -405,10 +408,10 @@ method FillCourses
          If All(&v) Then
             &row.EXT_SUBJECT_AREA_1 = &v;
          End-If;
-         If All(&ctx.ExtAcadLevel) Then
+         If &chk.IsSet(&ctx.ExtAcadLevel) Then
             &row.EXT_ACAD_LEVEL_2 = &ctx.ExtAcadLevel;
          End-If;
-         If All(&cfg.DataSource) Then
+         If &chk.IsSet(&cfg.DataSource) Then
             &row.LS_DATA_SOURCE_2 = &cfg.DataSource;
          End-If;
 
@@ -444,7 +447,7 @@ method FillDegrees
          Else
             &row = Null;
             If &degColl.Count = 1 Then
-               If None(&degColl.Item(1).DEGREE) Then
+               If &chk.IsBlank(&degColl.Item(1).DEGREE) Then
                   &row = &degColl.Item(1);
                End-If;
             End-If;
@@ -473,13 +476,13 @@ method FillOneDegree
    &row.DEGREE = &degree;
    &row.EXT_CAREER_1 = &ctx.ExtCareer;
    &row.EXT_DATA_NBR_1 = &ctx.ExtDataNbr;
-   If All(&award.AcademicAwardTitle) Then
+   If &chk.IsSet(&award.AcademicAwardTitle) Then
       &row.DESCR_1 = Left(&award.AcademicAwardTitle, &cfg.DescrLength);
    End-If;
-   If All(&award.AcademicAwardDate) Then
+   If &chk.IsSet(&award.AcademicAwardDate) Then
       &row.DEGREE_DT = &award.AcademicAwardDate;
    Else
-      If All(&award.AcademicCompletionDate) Then
+      If &chk.IsSet(&award.AcademicCompletionDate) Then
          &row.DEGREE_DT = &award.AcademicCompletionDate;
       End-If;
    End-If;
@@ -487,7 +490,7 @@ method FillOneDegree
    /* An award with a date counts as conferred even without the indicator. */
    &completed = "FALSE";
    If &award.AcademicCompletionIndicator Or
-         All(&award.AcademicAwardDate) Then
+         &chk.IsSet(&award.AcademicAwardDate) Then
       &completed = "TRUE";
    End-If;
    &v = &xw.Lookup("DEGREE_STATUS", &completed);
@@ -542,7 +545,7 @@ method FillOneDegree
       End-If;
    End-If;
 
-   If All(&cfg.DataSource) Then
+   If &chk.IsSet(&cfg.DataSource) Then
       &row.LS_DATA_SOURCE_3 = &cfg.DataSource;
    End-If;
 end-method;
@@ -573,7 +576,7 @@ method VerifySaved
    SQLExec("SELECT 'Y' FROM PS_EXT_ACAD_DATA WHERE EMPLID = :1 AND EXT_ORG_ID = :2 AND EXT_CAREER = :3 AND EXT_DATA_NBR = :4", &ctx.Emplid, &ctx.ExtOrgId, &ctx.ExtCareer, &ctx.ExtDataNbr, &found);
 
    If &found <> "Y" Then
-      &res.Error(&ctx.RecordIndex, "UW_ACAD_HIST_PERS saved, but no EXT_ACAD_DATA row exists for career " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | ". The CI didn't carry the keys onto the new row. Add EXT_CAREER and EXT_DATA_NBR to the EXT_ACAD_DATA collection (README.md, CI gaps). Transfer credit was not loaded for this record.");
+      &res.Err(&ctx.RecordIndex, "UW_ACAD_HIST_PERS saved, but no EXT_ACAD_DATA row exists for career " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | ". The CI didn't carry the keys onto the new row. Add EXT_CAREER and EXT_DATA_NBR to the EXT_ACAD_DATA collection (README.md, CI gaps). Transfer credit was not loaded for this record.");
       Return False;
    End-If;
 

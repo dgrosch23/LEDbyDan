@@ -12,7 +12,7 @@
 import UW_PESC:CourseType;
 
 class CourseItem
-   method CourseItem(&course As UW_PESC:CourseType);
+   method CourseItem(&crse As UW_PESC:CourseType);
 
    property UW_PESC:CourseType Course;
    property number TermYear;
@@ -26,8 +26,8 @@ class CourseItem
 end-class;
 
 method CourseItem
-   /+ &course as UW_PESC:CourseType +/
-   %This.Course = &course;
+   /+ &crse as UW_PESC:CourseType +/
+   %This.Course = &crse;
    %This.TermYear = 0;
    %This.ExtTermType = "";
    %This.ExtTerm = "";

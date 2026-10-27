@@ -22,7 +22,7 @@ class LoadResult
 
    method Info(&recordIndex As integer, &text As string);
    method Warn(&recordIndex As integer, &text As string);
-   method Error(&recordIndex As integer, &text As string);
+   method Err(&recordIndex As integer, &text As string);
    method AddPSMessages(&recordIndex As integer, &context As string);
    method ToText() Returns string;
    method WriteTo(&file As File);
@@ -52,7 +52,7 @@ method Warn
    %This.Add("WARN", &recordIndex, &text);
 end-method;
 
-method Error
+method Err
    /+ &recordIndex as Integer, +/
    /+ &text as String +/
    %This.HasErrors = True;

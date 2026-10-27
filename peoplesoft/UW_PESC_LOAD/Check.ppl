@@ -1,0 +1,29 @@
+/* ===========================================================================
+ * UW_PESC_LOAD:Check
+ *
+ * All() and None() accept only a variable, not an object property such
+ * as &cfg.Institution or &row.SCHOOL_SUBJECT. These wrappers copy the
+ * value into a parameter first, so any expression can be tested:
+ *
+ *    If &chk.IsSet(&cfg.Institution) Then ... End-If;
+ *    If &chk.IsBlank(&row.EXT_ORG_ID) Then ... End-If;
+ *
+ * Works for strings, numbers and dates (a Null date is blank).
+ * ========================================================================= */
+
+class Check
+   method IsSet(&v As any) Returns boolean;
+   method IsBlank(&v As any) Returns boolean;
+end-class;
+
+method IsSet
+   /+ &v as Any +/
+   /+ Returns Boolean +/
+   Return All(&v);
+end-method;
+
+method IsBlank
+   /+ &v as Any +/
+   /+ Returns Boolean +/
+   Return None(&v);
+end-method;

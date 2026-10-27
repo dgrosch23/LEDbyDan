@@ -30,6 +30,7 @@ import UW_PESC:AcademicSessionDetailType;
 import UW_PESC:AcademicAwardType;
 import UW_PESC:CourseType;
 import UW_PESC_LOAD:Config;
+import UW_PESC_LOAD:Check;
 import UW_PESC_LOAD:Crosswalk;
 import UW_PESC_LOAD:LoadResult;
 import UW_PESC_LOAD:RecordContext;
@@ -38,7 +39,7 @@ import UW_PESC_LOAD:ExtEducationLoader;
 import UW_PESC_LOAD:TransferCreditLoader;
 
 class TranscriptLoader
-   method TranscriptLoader(&config As UW_PESC_LOAD:Config);
+   method TranscriptLoader(&settings As UW_PESC_LOAD:Config);
 
    property UW_PESC_LOAD:Config Config;
    property UW_PESC_LOAD:Crosswalk Crosswalk;
@@ -48,6 +49,7 @@ class TranscriptLoader
 
 private
    instance UW_PESC_LOAD:LoadResult &res;
+   instance UW_PESC_LOAD:Check &chk;
 
    method BuildContext(&index As integer, &acadRec As UW_PESC:AcademicRecordType, &transcript As UW_PESC:CollegeTranscriptType, &emplid As string) Returns UW_PESC_LOAD:RecordContext;
    method AddCourses(&ctx As UW_PESC_LOAD:RecordContext, &courses As array of UW_PESC:CourseType, &detail As UW_PESC:AcademicSessionDetailType);
@@ -61,9 +63,10 @@ private
 end-class;
 
 method TranscriptLoader
-   /+ &config as UW_PESC_LOAD:Config +/
-   %This.Config = &config;
+   /+ &settings as UW_PESC_LOAD:Config +/
+   %This.Config = &settings;
    %This.Crosswalk = create UW_PESC_LOAD:Crosswalk();
+   &chk = create UW_PESC_LOAD:Check();
 end-method;
 
 method Load
@@ -83,15 +86,15 @@ method Load
    &trns = create UW_PESC_LOAD:TransferCreditLoader(%This.Config, %This.Crosswalk, &res);
 
    If &transcript = Null Then
-      &res.Error(0, "No transcript object.");
+      &res.Err(0, "No transcript object.");
       Return &res;
    End-If;
    If &transcript.Student = Null Then
-      &res.Error(0, "Transcript has no Student.");
+      &res.Err(0, "Transcript has no Student.");
       Return &res;
    End-If;
    If &transcript.Student.Len = 0 Then
-      &res.Error(0, "Transcript has no Student.");
+      &res.Err(0, "Transcript has no Student.");
       Return &res;
    End-If;
    If &transcript.Student.Len > 1 Then
@@ -103,12 +106,12 @@ method Load
       &id = %This.ResolveEmplid(&student.Person);
    End-If;
    If None(&id) Then
-      &res.Error(0, "No EMPLID: none was passed and Person/RecipientAssignedID doesn't match a PERSON row. Run Search/Match first.");
+      &res.Err(0, "No EMPLID: none was passed and Person/RecipientAssignedID doesn't match a PERSON row. Run Search/Match first.");
       Return &res;
    End-If;
    SQLExec("SELECT 'Y' FROM PS_PERSON WHERE EMPLID = :1", &id, &found);
    If &found <> "Y" Then
-      &res.Error(0, "EMPLID " | &id | " doesn't exist in PS_PERSON.");
+      &res.Err(0, "EMPLID " | &id | " doesn't exist in PS_PERSON.");
       Return &res;
    End-If;
 
@@ -149,7 +152,7 @@ method ResolveEmplid
    If &person = Null Then
       Return "";
    End-If;
-   If None(&person.RecipientAssignedID) Then
+   If &chk.IsBlank(&person.RecipientAssignedID) Then
       Return "";
    End-If;
 
@@ -178,8 +181,8 @@ method BuildContext
       &ctx.SchoolName = &acadRec.School.OrganizationName;
    End-If;
    &ctx.ExtOrgId = &xw.ExtOrgId(&acadRec.School);
-   If None(&ctx.ExtOrgId) Then
-      &res.Error(&index, "No EXT_ORG crosswalk for school '" | &ctx.SchoolName | "'. Add an EXT_ORG row for one of its codes (ATP, CEEBACT, FICE, ACT, IPEDS, OPEID). Record skipped.");
+   If &chk.IsBlank(&ctx.ExtOrgId) Then
+      &res.Err(&index, "No EXT_ORG crosswalk for school '" | &ctx.SchoolName | "'. Add an EXT_ORG row for one of its codes (ATP, CEEBACT, FICE, ACT, IPEDS, OPEID). Record skipped.");
       &ctx.Skip = True;
       Return &ctx;
    End-If;
@@ -187,7 +190,7 @@ method BuildContext
    /* ---- transcript header ---- */
    &ctx.TranscriptDt = %Date;
    If &transcript.TransmissionData <> Null Then
-      If All(&transcript.TransmissionData.CreatedDateTime) Then
+      If &chk.IsSet(&transcript.TransmissionData.CreatedDateTime) Then
          &ctx.TranscriptDt = %This.ParseDate(&transcript.TransmissionData.CreatedDateTime);
       End-If;
       &ctx.TranscriptType = &xw.Lookup("TRANSCRIPT_TYPE", &transcript.TransmissionData.DocumentOfficialCode);
@@ -207,8 +210,8 @@ method BuildContext
             If &latest = Null Then
                &latest = &sess;
             Else
-               If All(&sess.AcademicSessionDetail.SessionBeginDate) Then
-                  If None(&latest.AcademicSessionDetail.SessionBeginDate) Then
+               If &chk.IsSet(&sess.AcademicSessionDetail.SessionBeginDate) Then
+                  If &chk.IsBlank(&latest.AcademicSessionDetail.SessionBeginDate) Then
                      &latest = &sess;
                   Else
                      If &sess.AcademicSessionDetail.SessionBeginDate > &latest.AcademicSessionDetail.SessionBeginDate Then
@@ -242,26 +245,26 @@ method BuildContext
    &ctx.ExtCareer = &xw.Lookup("EXT_CAREER", &levelCode);
    &ctx.ExtAcadLevel = &xw.Lookup("EXT_ACAD_LEVEL", &levelCode);
 
-   If None(&ctx.ExtCareer) And
+   If &chk.IsBlank(&ctx.ExtCareer) And
          &ctx.Courses.Len > 0 Then
       &first = &ctx.Courses [1];
       &ctx.ExtCareer = &xw.Lookup("EXT_CAREER", &first.Course.CourseCreditLevel);
    End-If;
-   If None(&ctx.ExtCareer) Then
+   If &chk.IsBlank(&ctx.ExtCareer) Then
       &ctx.ExtCareer = %This.Config.DefaultExtCareer;
       &res.Warn(&index, "StudentLevel '" | &levelCode | "' has no EXT_CAREER crosswalk; using default " | &ctx.ExtCareer | ".");
    End-If;
 
    &ctx.AcadCareer = &xw.Lookup("ACAD_CAREER", &ctx.ExtCareer);
-   If None(&ctx.AcadCareer) Then
+   If &chk.IsBlank(&ctx.AcadCareer) Then
       &ctx.AcadCareer = %This.Config.DefaultAcadCareer;
    End-If;
 
    /* ---- unit type: from the first course that has one ---- */
    For &i = 1 To &ctx.Courses.Len
       &first = &ctx.Courses [&i];
-      If None(&ctx.UnitType) And
-            All(&first.UnitType) Then
+      If &chk.IsBlank(&ctx.UnitType) And
+            &chk.IsSet(&first.UnitType) Then
          &ctx.UnitType = &first.UnitType;
       End-If;
    End-For;
@@ -307,10 +310,10 @@ method MakeCourseItem
       &item.EndDt = &detail.SessionEndDate;
    End-If;
    If &course <> Null Then
-      If All(&course.CourseBeginDate) Then
+      If &chk.IsSet(&course.CourseBeginDate) Then
          &item.BeginDt = &course.CourseBeginDate;
       End-If;
-      If All(&course.CourseEndDate) Then
+      If &chk.IsSet(&course.CourseEndDate) Then
          &item.EndDt = &course.CourseEndDate;
       End-If;
    End-If;
@@ -349,13 +352,13 @@ method MakeCourseItem
    If Upper(&course.CourseCreditBasis) = "TRANSFERCREDIT" Then
       &item.SkipReason = "credit the sending school accepted from another school (CourseCreditBasis TransferCredit)";
    Else
-      If None(&course.CourseSubjectAbbreviation) Or
-            None(&course.CourseNumber) Then
+      If &chk.IsBlank(&course.CourseSubjectAbbreviation) Or
+            &chk.IsBlank(&course.CourseNumber) Then
          &item.SkipReason = "no CourseSubjectAbbreviation or CourseNumber";
       End-If;
    End-If;
 
-   If None(&item.SkipReason) Then
+   If &chk.IsBlank(&item.SkipReason) Then
       If &xw.Lookup("SKIP_GRADE_STATUS", &course.CourseAcademicGradeStatusCode) = "Y" Then
          &item.NoTransferReason = "grade status " | &course.CourseAcademicGradeStatusCode;
       Else
@@ -386,7 +389,7 @@ method WidenDates
    /+ &begin as Date, +/
    /+ &end as Date +/
    If All(&begin) Then
-      If None(&ctx.FromDt) Then
+      If &chk.IsBlank(&ctx.FromDt) Then
          &ctx.FromDt = &begin;
       Else
          If &begin < &ctx.FromDt Then
@@ -395,7 +398,7 @@ method WidenDates
       End-If;
    End-If;
    If All(&end) Then
-      If None(&ctx.ToDt) Then
+      If &chk.IsBlank(&ctx.ToDt) Then
          &ctx.ToDt = &end;
       Else
          If &end > &ctx.ToDt Then

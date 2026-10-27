@@ -21,6 +21,7 @@
  * ========================================================================= */
 import UW_PESC:CourseType;
 import UW_PESC_LOAD:Config;
+import UW_PESC_LOAD:Check;
 import UW_PESC_LOAD:Crosswalk;
 import UW_PESC_LOAD:LoadResult;
 import UW_PESC_LOAD:RecordContext;
@@ -34,6 +35,7 @@ private
    instance UW_PESC_LOAD:Config &cfg;
    instance UW_PESC_LOAD:Crosswalk &xw;
    instance UW_PESC_LOAD:LoadResult &res;
+   instance UW_PESC_LOAD:Check &chk;
 
    /* filled by ReadProgram() */
    instance string &acadProg;
@@ -53,6 +55,7 @@ method TransferCreditLoader
    &cfg = &config;
    &xw = &xwalk;
    &res = &result;
+   &chk = create UW_PESC_LOAD:Check();
 end-method;
 
 method Load
@@ -85,7 +88,7 @@ method Load
    &ci = %Session.GetCompIntfc(CompIntfc.UW_TRNS_CRSE_MNL);
    If &ci = Null Then
       &res.AddPSMessages(&idx, "GetCompIntfc UW_TRNS_CRSE_MNL");
-      &res.Error(&idx, "Could not get component interface UW_TRNS_CRSE_MNL.");
+      &res.Err(&idx, "Could not get component interface UW_TRNS_CRSE_MNL.");
       Return False;
    End-If;
 
@@ -101,7 +104,7 @@ method Load
       %Session.PSMessages.DeleteAll();
       If Not &ci.Create() Then
          &res.AddPSMessages(&idx, "UW_TRNS_CRSE_MNL.Create");
-         &res.Error(&idx, "UW_TRNS_CRSE_MNL Get and Create both failed for " | &ctx.Emplid | " / " | &ctx.AcadCareer | " / " | &cfg.Institution | ". Does the student have this career?");
+         &res.Err(&idx, "UW_TRNS_CRSE_MNL Get and Create both failed for " | &ctx.Emplid | " / " | &ctx.AcadCareer | " / " | &cfg.Institution | ". Does the student have this career?");
          Return False;
       End-If;
    End-If;
@@ -111,7 +114,7 @@ method Load
 
       &sch.TRNSFR_SRC_TYPE = &cfg.TrnsfrSrcType;
       &sch.EXT_ORG_ID = &ctx.ExtOrgId;
-      If All(&cfg.DataSource) Then
+      If &chk.IsSet(&cfg.DataSource) Then
          &sch.LS_DATA_SOURCE = &cfg.DataSource;
       End-If;
       If All(&acadProg) Then
@@ -120,7 +123,7 @@ method Load
       If All(&acadPlan) Then
          &sch.ACAD_PLAN = &acadPlan;
       End-If;
-      If All(&cfg.IncludeInGpa) Then
+      If &chk.IsSet(&cfg.IncludeInGpa) Then
          &sch.INCLUDE_IN_GPA = &cfg.IncludeInGpa;
       End-If;
 
@@ -143,13 +146,13 @@ method Load
          &item = &ctx.Courses [&i];
          &c = &item.Course;
 
-         If None(&item.SkipReason) Then
-            If All(&item.NoTransferReason) Then
+         If &chk.IsBlank(&item.SkipReason) Then
+            If &chk.IsSet(&item.NoTransferReason) Then
                &res.Info(&idx, "Course " | &c.CourseSubjectAbbreviation | " " | &c.CourseNumber | " not sent to transfer credit: " | &item.NoTransferReason);
             Else
                &equiv = &xw.Equivalency(&ctx.ExtOrgId, &c.CourseSubjectAbbreviation, &c.CourseNumber);
                If &equiv.Len = 0 And
-                     All(&cfg.GenericCrseId) Then
+                     &chk.IsSet(&cfg.GenericCrseId) Then
                   &equiv.Push(&cfg.GenericCrseId);
                   &equiv.Push(String(&cfg.GenericCrseOfferNbr));
                   &equiv.Push("0");
@@ -179,13 +182,13 @@ method Load
 
       If Not &ci.Save() Then
          &res.AddPSMessages(&idx, "UW_TRNS_CRSE_MNL.Save");
-         &res.Error(&idx, "UW_TRNS_CRSE_MNL Save failed. No model was created for EXT_ORG_ID " | &ctx.ExtOrgId | ".");
+         &res.Err(&idx, "UW_TRNS_CRSE_MNL Save failed. No model was created for EXT_ORG_ID " | &ctx.ExtOrgId | ".");
          &ci.Cancel();
          Return False;
       End-If;
    catch Exception &e
       &res.AddPSMessages(&idx, "UW_TRNS_CRSE_MNL");
-      &res.Error(&idx, "UW_TRNS_CRSE_MNL load stopped: " | &e.ToString());
+      &res.Err(&idx, "UW_TRNS_CRSE_MNL load stopped: " | &e.ToString());
       &ci.Cancel();
       Return False;
    end-try;
@@ -233,8 +236,8 @@ method CountEligible
    &n = 0;
    For &i = 1 To &ctx.Courses.Len
       &item = &ctx.Courses [&i];
-      If None(&item.SkipReason) And
-            None(&item.NoTransferReason) Then
+      If &chk.IsBlank(&item.SkipReason) And
+            &chk.IsBlank(&item.NoTransferReason) Then
          &n = &n + 1;
       End-If;
    End-For;
@@ -250,8 +253,8 @@ method NewModelRow
 
    If &schColl.Count = 1 Then
       &row = &schColl.Item(1);
-      If None(&row.EXT_ORG_ID) And
-            None(&row.SRC_INSTITUTION) Then
+      If &chk.IsBlank(&row.EXT_ORG_ID) And
+            &chk.IsBlank(&row.SRC_INSTITUTION) Then
          Return &row;
       End-If;
    End-If;
@@ -276,24 +279,24 @@ method FillDetail
    If &item.TermYear > 0 Then
       &row.TERM_YEAR = &item.TermYear;
    End-If;
-   If All(&item.ExtTerm) Then
+   If &chk.IsSet(&item.ExtTerm) Then
       &row.EXT_TERM = &item.ExtTerm;
    End-If;
    &row.SCHOOL_SUBJECT_0 = Upper(&c.CourseSubjectAbbreviation);
    &row.SCHOOL_CRSE_NBR = Upper(&c.CourseNumber);
    &row.DESCR_0 = Left(&c.CourseTitle, &cfg.DescrLength);
    &row.UNT_TAKEN_1 = &c.CourseCreditValue;
-   If All(&c.CourseAcademicGrade) Then
+   If &chk.IsSet(&c.CourseAcademicGrade) Then
       &row.CRSE_GRADE_INPUT_0 = Upper(&c.CourseAcademicGrade);
    End-If;
 
    /* equivalent course */
    &row.CRSE_ID = &equiv [1];
    &row.CRSE_OFFER_NBR = Value(&equiv [2]);
-   If All(&cfg.TrnsGradingScheme) Then
+   If &chk.IsSet(&cfg.TrnsGradingScheme) Then
       &row.GRADING_SCHEME_0 = &cfg.TrnsGradingScheme;
    End-If;
-   If All(&cfg.TrnsGradingBasis) Then
+   If &chk.IsSet(&cfg.TrnsGradingBasis) Then
       &row.GRADING_BASIS_0 = &cfg.TrnsGradingBasis;
    End-If;
 
@@ -322,7 +325,7 @@ method FillDetail
    If All(&v) Then
       &row.COURSE_LEVEL = &v;
    End-If;
-   If All(&cfg.IncludeInGpa) Then
+   If &chk.IsSet(&cfg.IncludeInGpa) Then
       &row.INCLUDE_IN_GPA_0 = &cfg.IncludeInGpa;
    End-If;
 end-method;

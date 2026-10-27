@@ -27,9 +27,10 @@ All CI property names come from the generated templates for your two CIs.
 | `CourseItem` | One course with its term, dates, unit type and skip decision |
 | `Config` | Institution, constants, behavior switches |
 | `LoadResult` | Info/warning/error log, PSMessages, counts |
+| `Check` | `IsSet()` / `IsBlank()`: All()/None() for properties, which the built-ins won't take |
 
 Install in App Designer as package `UW_PESC_LOAD`. Save in this order so the
-imports resolve: `Config` → `LoadResult` → `Crosswalk` → `CourseItem` →
+imports resolve: `Check` → `Config` → `LoadResult` → `Crosswalk` → `CourseItem` →
 `RecordContext` → `ExtEducationLoader` → `TransferCreditLoader` →
 `TranscriptLoader`.
 

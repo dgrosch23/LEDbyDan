@@ -13,7 +13,7 @@
 import UW_PESC:AcademicRecordType;
 
 class RecordContext
-   method RecordContext(&recordIndex As integer, &acadRec As UW_PESC:AcademicRecordType);
+   method RecordContext(&index As integer, &acadRec As UW_PESC:AcademicRecordType);
 
    property integer RecordIndex;
    property UW_PESC:AcademicRecordType AcademicRecord;
@@ -45,9 +45,9 @@ class RecordContext
 end-class;
 
 method RecordContext
-   /+ &recordIndex as Integer, +/
+   /+ &index as Integer, +/
    /+ &acadRec as UW_PESC:AcademicRecordType +/
-   %This.RecordIndex = &recordIndex;
+   %This.RecordIndex = &index;
    %This.AcademicRecord = &acadRec;
    %This.Emplid = "";
    %This.ExtOrgId = "";
