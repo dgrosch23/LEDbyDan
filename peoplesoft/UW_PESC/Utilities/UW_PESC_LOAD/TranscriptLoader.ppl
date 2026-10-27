@@ -79,6 +79,7 @@ method Load
    Local UW_PESC:Utilities:UW_PESC_LOAD:TransferCreditLoader &trns;
    Local string &id = &emplid;
    Local string &found = "";
+   Local boolean &trnsSaved;
    Local integer &i;
 
    &res = create UW_PESC:Utilities:UW_PESC_LOAD:LoadResult();
@@ -134,7 +135,8 @@ method Load
             If &ctx.ExtEdSaved Then
                &res.RecordsLoaded = &res.RecordsLoaded + 1;
                If %This.Config.LoadTransferCredit Then
-                  &trns.Load(&ctx);
+                  /* outcome is already logged in &res */
+                  &trnsSaved = &trns.Load(&ctx);
                End-If;
             End-If;
          End-If;
