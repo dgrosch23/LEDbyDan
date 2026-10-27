@@ -1,0 +1,37 @@
+/* ===========================================================================
+ * UW_PESC_LOAD:CourseItem
+ *
+ * One PESC Course with its term already worked out. TranscriptLoader
+ * builds these once per AcademicRecord. Both loaders read them, so
+ * EXT_COURSE and TRNS_CRSE_DTL always get the same term, units and
+ * skip decisions.
+ *
+ *    SkipReason        not blank -> course goes to neither component
+ *    NoTransferReason  not blank -> course goes to EXT_COURSE only
+ * ========================================================================= */
+import UW_PESC:CourseType;
+
+class CourseItem
+   method CourseItem(&course As UW_PESC:CourseType);
+
+   property UW_PESC:CourseType Course;
+   property number TermYear;
+   property string ExtTermType;
+   property string ExtTerm;
+   property date BeginDt;
+   property date EndDt;
+   property string UnitType;
+   property string SkipReason;
+   property string NoTransferReason;
+end-class;
+
+method CourseItem
+   /+ &course as UW_PESC:CourseType +/
+   %This.Course = &course;
+   %This.TermYear = 0;
+   %This.ExtTermType = "";
+   %This.ExtTerm = "";
+   %This.UnitType = "";
+   %This.SkipReason = "";
+   %This.NoTransferReason = "";
+end-method;

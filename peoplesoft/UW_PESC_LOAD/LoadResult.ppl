@@ -1,0 +1,108 @@
+/* ===========================================================================
+ * UW_PESC_LOAD:LoadResult
+ *
+ * Collects what happened during a load: info, warnings, errors and the
+ * PSMessages each CI call produced. Record 0 means the transcript as a
+ * whole. Otherwise it is the 1-based AcademicRecord number in the file.
+ *
+ *    Local UW_PESC_LOAD:LoadResult &r = &loader.Load(&transcript, &emplid);
+ *    If &r.HasErrors Then ... End-If;
+ *    &r.WriteTo(&logFile);
+ * ========================================================================= */
+
+class LoadResult
+   method LoadResult();
+
+   property boolean HasErrors;
+   property integer RecordsLoaded;
+   property integer CoursesLoaded;
+   property integer DegreesLoaded;
+   property integer TransferRowsLoaded;
+   property array of string Lines;
+
+   method Info(&recordIndex As integer, &text As string);
+   method Warn(&recordIndex As integer, &text As string);
+   method Error(&recordIndex As integer, &text As string);
+   method AddPSMessages(&recordIndex As integer, &context As string);
+   method ToText() Returns string;
+   method WriteTo(&file As File);
+
+private
+   method Add(&level As string, &recordIndex As integer, &text As string);
+end-class;
+
+method LoadResult
+   %This.HasErrors = False;
+   %This.RecordsLoaded = 0;
+   %This.CoursesLoaded = 0;
+   %This.DegreesLoaded = 0;
+   %This.TransferRowsLoaded = 0;
+   %This.Lines = CreateArrayRept("", 0);
+end-method;
+
+method Info
+   /+ &recordIndex as Integer, +/
+   /+ &text as String +/
+   %This.Add("INFO", &recordIndex, &text);
+end-method;
+
+method Warn
+   /+ &recordIndex as Integer, +/
+   /+ &text as String +/
+   %This.Add("WARN", &recordIndex, &text);
+end-method;
+
+method Error
+   /+ &recordIndex as Integer, +/
+   /+ &text as String +/
+   %This.HasErrors = True;
+   %This.Add("ERROR", &recordIndex, &text);
+end-method;
+
+method AddPSMessages
+   /+ &recordIndex as Integer, +/
+   /+ &context as String +/
+   /* Copies the session's PSMessages into the log and clears them, so the
+      next CI call starts with an empty collection. */
+   Local ApiObject &msgs = %Session.PSMessages;
+   Local ApiObject &msg;
+   Local integer &i;
+
+   For &i = 1 To &msgs.Count
+      &msg = &msgs.Item(&i);
+      %This.Add("PSMSG", &recordIndex, &context | " (" | &msg.MessageSetNumber | "," | &msg.MessageNumber | ") " | &msg.Text);
+   End-For;
+   &msgs.DeleteAll();
+end-method;
+
+method ToText
+   /+ Returns String +/
+   Local string &summary = "Records loaded: " | %This.RecordsLoaded | ", courses: " | %This.CoursesLoaded | ", degrees: " | %This.DegreesLoaded | ", transfer rows: " | %This.TransferRowsLoaded;
+
+   If %This.Lines.Len = 0 Then
+      Return &summary;
+   End-If;
+   Return %This.Lines.Join(Char(10), "", "") | Char(10) | &summary;
+end-method;
+
+method WriteTo
+   /+ &file as File +/
+   Local integer &i;
+
+   For &i = 1 To %This.Lines.Len
+      &file.WriteLine(%This.Lines [&i]);
+   End-For;
+   &file.WriteLine("Records loaded: " | %This.RecordsLoaded | ", courses: " | %This.CoursesLoaded | ", degrees: " | %This.DegreesLoaded | ", transfer rows: " | %This.TransferRowsLoaded);
+end-method;
+
+method Add
+   /+ &level as String, +/
+   /+ &recordIndex as Integer, +/
+   /+ &text as String +/
+   Local string &where = "Transcript";
+
+   If &recordIndex > 0 Then
+      &where = "AcademicRecord " | &recordIndex;
+   End-If;
+   %This.Lines.Push("[" | &level | "] " | &where | ": " | &text);
+end-method;

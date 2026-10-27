@@ -1,0 +1,71 @@
+/* ===========================================================================
+ * UW_PESC_LOAD:Config
+ *
+ * Settings for one load run. Every value has a default in the constructor.
+ * Override them on the instance before passing it to TranscriptLoader.
+ *
+ * Optional CI fields are only set when their setting is not blank. A blank
+ * setting leaves the field to the component's own default.
+ *
+ *    Local UW_PESC_LOAD:Config &cfg = create UW_PESC_LOAD:Config();
+ *    &cfg.DataSource = "EXT";
+ *    &cfg.DefaultArticulationTerm = "2272";
+ * ========================================================================= */
+
+class Config
+   method Config();
+
+   /* ---- your institution ---- */
+   property string Institution;
+   property string DefaultAcadCareer;
+   property string DefaultExtCareer;
+   property string DefaultArticulationTerm;
+
+   /* ---- ACAD_HIST_PERS constants (XLAT values; blank = leave alone) ---- */
+   property string DataSource;
+   property string DataMedium;
+   property string TranscriptStatus;
+   property string ExtGradingScheme;
+   property string ExtGradingBasis;
+
+   /* ---- TRNS_CRSE_MNL constants ---- */
+   property string TrnsfrSrcType;
+   property string TrnsGradingScheme;
+   property string TrnsGradingBasis;
+   property string IncludeInGpa;
+   property string GenericCrseId;
+   property number GenericCrseOfferNbr;
+
+   /* ---- behavior ---- */
+   property boolean LoadTransferCredit;
+   property boolean SkipDuplicateTranscripts;
+   property boolean InteractiveMode;
+   property number DescrLength;
+end-class;
+
+method Config
+   %This.Institution = "UWRVF";
+   %This.DefaultAcadCareer = "UGRD";
+   %This.DefaultExtCareer = "UGRD";
+   %This.DefaultArticulationTerm = "";
+
+   %This.DataSource = "";
+   %This.DataMedium = "";
+   %This.TranscriptStatus = "";
+   %This.ExtGradingScheme = "";
+   %This.ExtGradingBasis = "";
+
+   /* E = external organization */
+   %This.TrnsfrSrcType = "E";
+   %This.TrnsGradingScheme = "";
+   %This.TrnsGradingBasis = "";
+   %This.IncludeInGpa = "";
+   /* blank = no generic course: rows without an equivalency are skipped */
+   %This.GenericCrseId = "";
+   %This.GenericCrseOfferNbr = 1;
+
+   %This.LoadTransferCredit = True;
+   %This.SkipDuplicateTranscripts = True;
+   %This.InteractiveMode = False;
+   %This.DescrLength = 30;
+end-method;

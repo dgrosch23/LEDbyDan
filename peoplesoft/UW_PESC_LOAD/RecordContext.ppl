@@ -1,0 +1,68 @@
+/* ===========================================================================
+ * UW_PESC_LOAD:RecordContext
+ *
+ * Everything worked out for one PESC AcademicRecord before any CI is
+ * touched: the student, the school, careers, data number, the "as of"
+ * term and the course list. ExtEducationLoader and TransferCreditLoader
+ * both read it, so the two components always agree.
+ *
+ * Courses holds UW_PESC_LOAD:CourseItem objects and Awards holds
+ * UW_PESC:AcademicAwardType objects. Both are declared array of any to
+ * avoid typed object-array assignment.
+ * ========================================================================= */
+import UW_PESC:AcademicRecordType;
+
+class RecordContext
+   method RecordContext(&recordIndex As integer, &acadRec As UW_PESC:AcademicRecordType);
+
+   property integer RecordIndex;
+   property UW_PESC:AcademicRecordType AcademicRecord;
+   property string Emplid;
+
+   /* ---- external side (ACAD_HIST_PERS) ---- */
+   property string ExtOrgId;
+   property string SchoolName;
+   property string ExtCareer;
+   property number ExtDataNbr;
+   property string ExtAcadLevel;
+   property string TranscriptType;
+   property date TranscriptDt;
+   property date FromDt;
+   property date ToDt;
+   property number AsOfTermYear;
+   property string AsOfExtTermType;
+   property string AsOfExtTerm;
+   property string UnitType;
+   property array of any Courses;
+   property array of any Awards;
+
+   /* ---- your side (TRNS_CRSE_MNL) ---- */
+   property string AcadCareer;
+
+   /* ---- status ---- */
+   property boolean Skip;
+   property boolean ExtEdSaved;
+end-class;
+
+method RecordContext
+   /+ &recordIndex as Integer, +/
+   /+ &acadRec as UW_PESC:AcademicRecordType +/
+   %This.RecordIndex = &recordIndex;
+   %This.AcademicRecord = &acadRec;
+   %This.Emplid = "";
+   %This.ExtOrgId = "";
+   %This.SchoolName = "";
+   %This.ExtCareer = "";
+   %This.ExtDataNbr = 0;
+   %This.ExtAcadLevel = "";
+   %This.TranscriptType = "";
+   %This.AsOfTermYear = 0;
+   %This.AsOfExtTermType = "";
+   %This.AsOfExtTerm = "";
+   %This.UnitType = "";
+   %This.Courses = CreateArrayAny();
+   %This.Awards = CreateArrayAny();
+   %This.AcadCareer = "";
+   %This.Skip = False;
+   %This.ExtEdSaved = False;
+end-method;

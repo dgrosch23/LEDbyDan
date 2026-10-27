@@ -1,0 +1,154 @@
+/* ===========================================================================
+ * UW_PESC_LOAD:Crosswalk
+ *
+ * Translates PESC codes into Campus Solutions values. All lookups go
+ * through two placeholder tables (definitions in README.md):
+ *
+ *    PS_UW_PESC_XWALK   UW_XWALK_TYPE + UW_PESC_VALUE  -> UW_CS_VALUE
+ *    PS_UW_PESC_EQUIV   EXT_ORG_ID + SCHOOL_SUBJECT + SCHOOL_CRSE_NBR
+ *                          -> CRSE_ID, CRSE_OFFER_NBR, UNT_TRNSFR
+ *
+ * To use tables you already have, change only the SQL in Lookup() and
+ * Equivalency(). PESC values are matched upper-cased, so store
+ * UW_PESC_VALUE in upper case. Results are cached for the life of the
+ * instance.
+ *
+ * A lookup with no match returns "". Callers decide whether that is an
+ * error, a warning or "leave the field alone".
+ * ========================================================================= */
+import UW_PESC:SchoolType;
+
+class Crosswalk
+   method Crosswalk();
+
+   method Lookup(&type As string, &pescValue As string) Returns string;
+   method LookupFirst(&type As string, &pescValues As array of string) Returns string;
+   method ExtOrgId(&school As UW_PESC:SchoolType) Returns string;
+   method Equivalency(&extOrgId As string, &subject As string, &crseNbr As string) Returns array of string;
+
+private
+   instance array of string &cacheKeys;
+   instance array of string &cacheValues;
+   method TryOrg(&qualifier As string, &code As string) Returns string;
+end-class;
+
+method Crosswalk
+   &cacheKeys = CreateArrayRept("", 0);
+   &cacheValues = CreateArrayRept("", 0);
+end-method;
+
+method Lookup
+   /+ &type as String, +/
+   /+ &pescValue as String +/
+   /+ Returns String +/
+   Local string &value = Upper(LTrim(RTrim(&pescValue)));
+   Local string &key;
+   Local string &result = "";
+   Local integer &at;
+
+   If None(&value) Then
+      Return "";
+   End-If;
+
+   &key = &type | "|" | &value;
+   &at = &cacheKeys.Find(&key);
+   If &at > 0 Then
+      Return &cacheValues [&at];
+   End-If;
+
+   SQLExec("SELECT UW_CS_VALUE FROM PS_UW_PESC_XWALK WHERE UW_XWALK_TYPE = :1 AND UW_PESC_VALUE = :2", &type, &value, &result);
+   &result = RTrim(&result);
+
+   &cacheKeys.Push(&key);
+   &cacheValues.Push(&result);
+   Return &result;
+end-method;
+
+method LookupFirst
+   /+ &type as String, +/
+   /+ &pescValues as Array of String +/
+   /+ Returns String +/
+   /* Tries each value in order and returns the first match. */
+   Local string &result;
+   Local integer &i;
+
+   For &i = 1 To &pescValues.Len
+      &result = %This.Lookup(&type, &pescValues [&i]);
+      If All(&result) Then
+         Return &result;
+      End-If;
+   End-For;
+   Return "";
+end-method;
+
+method ExtOrgId
+   /+ &school as UW_PESC:SchoolType +/
+   /+ Returns String +/
+   /* Crosswalk type EXT_ORG, value "<QUALIFIER>:<CODE>", e.g. "FICE:001234".
+      Codes are tried in this order. The first match wins. */
+   Local string &org = "";
+
+   If &school = Null Then
+      Return "";
+   End-If;
+
+   &org = %This.TryOrg("ATP", &school.ATP);
+   If None(&org) Then
+      &org = %This.TryOrg("CEEBACT", &school.CEEBACT);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("FICE", &school.FICE);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("ACT", &school.ACT);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("IPEDS", &school.IPEDS);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("OPEID", &school.OPEID);
+   End-If;
+   If None(&org) Then
+      If &school.LocalOrganizationID <> Null Then
+         &org = %This.TryOrg("LOCAL", &school.LocalOrganizationID.LocalOrganizationIDCode);
+      End-If;
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("NAME", &school.OrganizationName);
+   End-If;
+   Return &org;
+end-method;
+
+method Equivalency
+   /+ &extOrgId as String, +/
+   /+ &subject as String, +/
+   /+ &crseNbr as String +/
+   /+ Returns Array of String +/
+   /* Returns [CRSE_ID, CRSE_OFFER_NBR, UNT_TRNSFR] or an empty array.
+      To use the delivered transfer rules instead, replace this SQL with a
+      join of PS_TRNSFR_FR to PS_TRNSFR_TO on your institution, source org
+      and effective date. */
+   Local string &crseId = "";
+   Local number &offerNbr = 0;
+   Local number &units = 0;
+   Local array of string &match = CreateArrayRept("", 0);
+
+   SQLExec("SELECT CRSE_ID, CRSE_OFFER_NBR, UNT_TRNSFR FROM PS_UW_PESC_EQUIV WHERE EXT_ORG_ID = :1 AND SCHOOL_SUBJECT = :2 AND SCHOOL_CRSE_NBR = :3", &extOrgId, Upper(&subject), Upper(&crseNbr), &crseId, &offerNbr, &units);
+
+   If All(&crseId) Then
+      &match.Push(RTrim(&crseId));
+      &match.Push(String(&offerNbr));
+      &match.Push(String(&units));
+   End-If;
+   Return &match;
+end-method;
+
+method TryOrg
+   /+ &qualifier as String, +/
+   /+ &code as String +/
+   /+ Returns String +/
+   If None(LTrim(RTrim(&code))) Then
+      Return "";
+   End-If;
+   Return %This.Lookup("EXT_ORG", &qualifier | ":" | LTrim(RTrim(&code)));
+end-method;
