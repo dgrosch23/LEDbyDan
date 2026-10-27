@@ -1,5 +1,5 @@
 /* ===========================================================================
- * UW_PESC:Utilities:CourseItem
+ * UW_PESC:Utilities:UW_PESC_LOAD:CourseItem
  *
  * One PESC Course with its term already worked out. TranscriptLoader
  * builds these once per AcademicRecord. Both loaders read them, so

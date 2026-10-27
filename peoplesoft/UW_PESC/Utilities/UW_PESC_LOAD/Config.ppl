@@ -1,5 +1,5 @@
 /* ===========================================================================
- * UW_PESC:Utilities:Config
+ * UW_PESC:Utilities:UW_PESC_LOAD:Config
  *
  * Settings for one load run. Every value has a default in the constructor.
  * Override them on the instance before passing it to TranscriptLoader.
@@ -7,7 +7,7 @@
  * Optional CI fields are only set when their setting is not blank. A blank
  * setting leaves the field to the component's own default.
  *
- *    Local UW_PESC:Utilities:Config &cfg = create UW_PESC:Utilities:Config();
+ *    Local UW_PESC:Utilities:UW_PESC_LOAD:Config &cfg = create UW_PESC:Utilities:UW_PESC_LOAD:Config();
  *    &cfg.DataSource = "EXT";
  *    &cfg.DefaultArticulationTerm = "2272";
  * ========================================================================= */

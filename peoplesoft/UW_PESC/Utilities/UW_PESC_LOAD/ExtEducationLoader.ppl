@@ -1,5 +1,5 @@
 /* ===========================================================================
- * UW_PESC:Utilities:ExtEducationLoader
+ * UW_PESC:Utilities:UW_PESC_LOAD:ExtEducationLoader
  *
  * Loads one PESC AcademicRecord into External Education through the
  * UW_ACAD_HIST_PERS component interface. Each call gets the CI, saves
@@ -24,49 +24,49 @@ import UW_PESC:AcademicAwardType;
 import UW_PESC:AcademicHonorsType;
 import UW_PESC:AcademicProgramType;
 import UW_PESC:CourseType;
-import UW_PESC:Utilities:Config;
-import UW_PESC:Utilities:Check;
-import UW_PESC:Utilities:Crosswalk;
-import UW_PESC:Utilities:LoadResult;
-import UW_PESC:Utilities:RecordContext;
-import UW_PESC:Utilities:CourseItem;
+import UW_PESC:Utilities:UW_PESC_LOAD:Config;
+import UW_PESC:Utilities:UW_PESC_LOAD:Check;
+import UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk;
+import UW_PESC:Utilities:UW_PESC_LOAD:LoadResult;
+import UW_PESC:Utilities:UW_PESC_LOAD:RecordContext;
+import UW_PESC:Utilities:UW_PESC_LOAD:CourseItem;
 
 class ExtEducationLoader
-   method ExtEducationLoader(&config As UW_PESC:Utilities:Config, &xwalk As UW_PESC:Utilities:Crosswalk, &result As UW_PESC:Utilities:LoadResult);
-   method Load(&ctx As UW_PESC:Utilities:RecordContext) Returns boolean;
+   method ExtEducationLoader(&config As UW_PESC:Utilities:UW_PESC_LOAD:Config, &xwalk As UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk, &result As UW_PESC:Utilities:UW_PESC_LOAD:LoadResult);
+   method Load(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
 
 private
-   instance UW_PESC:Utilities:Config &cfg;
-   instance UW_PESC:Utilities:Crosswalk &xw;
-   instance UW_PESC:Utilities:LoadResult &res;
-   instance UW_PESC:Utilities:Check &chk;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Config &cfg;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk &xw;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:LoadResult &res;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Check &chk;
    instance boolean &orgIsNew;
    instance integer &pendingCourses;
    instance integer &pendingDegrees;
 
    method FindOrAddOrg(&orgColl As ApiObject, &extOrgId As string) Returns ApiObject;
-   method SetOrgDefaults(&org As ApiObject, &ctx As UW_PESC:Utilities:RecordContext);
-   method FillAcadData(&data As ApiObject, &ctx As UW_PESC:Utilities:RecordContext);
-   method FillSummaries(&sumColl As ApiObject, &ctx As UW_PESC:Utilities:RecordContext);
-   method FillCourses(&crseColl As ApiObject, &ctx As UW_PESC:Utilities:RecordContext);
-   method FillDegrees(&degColl As ApiObject, &ctx As UW_PESC:Utilities:RecordContext);
-   method FillOneDegree(&row As ApiObject, &award As UW_PESC:AcademicAwardType, &degree As string, &ctx As UW_PESC:Utilities:RecordContext);
+   method SetOrgDefaults(&org As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillAcadData(&data As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillSummaries(&sumColl As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillCourses(&crseColl As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillDegrees(&degColl As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillOneDegree(&row As ApiObject, &award As UW_PESC:AcademicAwardType, &degree As string, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
    method DegreeExists(&degColl As ApiObject, &degree As string, &degreeDt As date) Returns boolean;
-   method VerifySaved(&ctx As UW_PESC:Utilities:RecordContext) Returns boolean;
+   method VerifySaved(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
 end-class;
 
 method ExtEducationLoader
-   /+ &config as UW_PESC:Utilities:Config, +/
-   /+ &xwalk as UW_PESC:Utilities:Crosswalk, +/
-   /+ &result as UW_PESC:Utilities:LoadResult +/
+   /+ &config as UW_PESC:Utilities:UW_PESC_LOAD:Config, +/
+   /+ &xwalk as UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk, +/
+   /+ &result as UW_PESC:Utilities:UW_PESC_LOAD:LoadResult +/
    &cfg = &config;
    &xw = &xwalk;
    &res = &result;
-   &chk = create UW_PESC:Utilities:Check();
+   &chk = create UW_PESC:Utilities:UW_PESC_LOAD:Check();
 end-method;
 
 method Load
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /+ Returns Boolean +/
    Local ApiObject &ci, &org, &dataColl, &data;
    Local integer &idx = &ctx.RecordIndex;
@@ -168,7 +168,7 @@ end-method;
 
 method SetOrgDefaults
    /+ &org as ApiObject, +/
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /* ACAD_HISTORY holds the defaults that new EXT_ACAD_DATA / EXT_COURSE /
       EXT_DEGREE rows copy. Set them before inserting child rows. */
    &org.EXT_CAREER = &ctx.ExtCareer;
@@ -195,7 +195,7 @@ end-method;
 
 method FillAcadData
    /+ &data as ApiObject, +/
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /* The keys aren't in the generated CI. Set them only if someone added
       them, otherwise the ACAD_HISTORY defaults supply them. */
    try
@@ -242,7 +242,7 @@ end-method;
 
 method FillSummaries
    /+ &sumColl as ApiObject, +/
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /* Only AcademicRecord/AcademicSummary (career totals). Session-level
       summaries are term GPAs and have no place in External Education. */
    Local array of UW_PESC:AcademicSummaryFType &sums = &ctx.AcademicRecord.AcademicSummary;
@@ -328,8 +328,8 @@ end-method;
 
 method FillCourses
    /+ &crseColl as ApiObject, +/
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
-   Local UW_PESC:Utilities:CourseItem &item;
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &item;
    Local UW_PESC:CourseType &c;
    Local ApiObject &row;
    Local string &v;
@@ -422,7 +422,7 @@ end-method;
 
 method FillDegrees
    /+ &degColl as ApiObject, +/
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    Local UW_PESC:AcademicAwardType &award;
    Local ApiObject &row;
    Local string &degree;
@@ -465,7 +465,7 @@ method FillOneDegree
    /+ &row as ApiObject, +/
    /+ &award as UW_PESC:AcademicAwardType, +/
    /+ &degree as String, +/
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    Local array of UW_PESC:AcademicProgramType &progs = &award.AcademicAwardProgram;
    Local array of any &picked = CreateArrayAny();
    Local UW_PESC:AcademicProgramType &p;
@@ -569,7 +569,7 @@ method DegreeExists
 end-method;
 
 method VerifySaved
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /+ Returns Boolean +/
    Local string &found = "";
 

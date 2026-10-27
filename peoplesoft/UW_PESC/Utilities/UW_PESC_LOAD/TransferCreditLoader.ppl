@@ -1,5 +1,5 @@
 /* ===========================================================================
- * UW_PESC:Utilities:TransferCreditLoader
+ * UW_PESC:Utilities:UW_PESC_LOAD:TransferCreditLoader
  *
  * Creates one unposted manual transfer credit model per PESC AcademicRecord
  * through the UW_TRNS_CRSE_MNL component interface. Run it only after
@@ -20,49 +20,49 @@
  * default applies. Evaluators review and post them online.
  * ========================================================================= */
 import UW_PESC:CourseType;
-import UW_PESC:Utilities:Config;
-import UW_PESC:Utilities:Check;
-import UW_PESC:Utilities:Crosswalk;
-import UW_PESC:Utilities:LoadResult;
-import UW_PESC:Utilities:RecordContext;
-import UW_PESC:Utilities:CourseItem;
+import UW_PESC:Utilities:UW_PESC_LOAD:Config;
+import UW_PESC:Utilities:UW_PESC_LOAD:Check;
+import UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk;
+import UW_PESC:Utilities:UW_PESC_LOAD:LoadResult;
+import UW_PESC:Utilities:UW_PESC_LOAD:RecordContext;
+import UW_PESC:Utilities:UW_PESC_LOAD:CourseItem;
 
 class TransferCreditLoader
-   method TransferCreditLoader(&config As UW_PESC:Utilities:Config, &xwalk As UW_PESC:Utilities:Crosswalk, &result As UW_PESC:Utilities:LoadResult);
-   method Load(&ctx As UW_PESC:Utilities:RecordContext) Returns boolean;
+   method TransferCreditLoader(&config As UW_PESC:Utilities:UW_PESC_LOAD:Config, &xwalk As UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk, &result As UW_PESC:Utilities:UW_PESC_LOAD:LoadResult);
+   method Load(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
 
 private
-   instance UW_PESC:Utilities:Config &cfg;
-   instance UW_PESC:Utilities:Crosswalk &xw;
-   instance UW_PESC:Utilities:LoadResult &res;
-   instance UW_PESC:Utilities:Check &chk;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Config &cfg;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk &xw;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:LoadResult &res;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Check &chk;
 
    /* filled by ReadProgram() */
    instance string &acadProg;
    instance string &acadPlan;
    instance string &admitTerm;
 
-   method ReadProgram(&ctx As UW_PESC:Utilities:RecordContext);
-   method CountEligible(&ctx As UW_PESC:Utilities:RecordContext) Returns integer;
+   method ReadProgram(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method CountEligible(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns integer;
    method NewModelRow(&schColl As ApiObject) Returns ApiObject;
-   method FillDetail(&row As ApiObject, &item As UW_PESC:Utilities:CourseItem, &grp As integer, &equiv As array of string, &ctx As UW_PESC:Utilities:RecordContext);
+   method FillDetail(&row As ApiObject, &item As UW_PESC:Utilities:UW_PESC_LOAD:CourseItem, &grp As integer, &equiv As array of string, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
 end-class;
 
 method TransferCreditLoader
-   /+ &config as UW_PESC:Utilities:Config, +/
-   /+ &xwalk as UW_PESC:Utilities:Crosswalk, +/
-   /+ &result as UW_PESC:Utilities:LoadResult +/
+   /+ &config as UW_PESC:Utilities:UW_PESC_LOAD:Config, +/
+   /+ &xwalk as UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk, +/
+   /+ &result as UW_PESC:Utilities:UW_PESC_LOAD:LoadResult +/
    &cfg = &config;
    &xw = &xwalk;
    &res = &result;
-   &chk = create UW_PESC:Utilities:Check();
+   &chk = create UW_PESC:Utilities:UW_PESC_LOAD:Check();
 end-method;
 
 method Load
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /+ Returns Boolean +/
    Local ApiObject &ci, &sch, &termColl, &term, &dtlColl, &dtl;
-   Local UW_PESC:Utilities:CourseItem &item;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &item;
    Local UW_PESC:CourseType &c;
    Local array of string &equiv;
    Local string &artTerm;
@@ -203,7 +203,7 @@ method Load
 end-method;
 
 method ReadProgram
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /* The student's current program (latest effective row on the newest
       career number) supplies ACAD_PROG, ADMIT_TERM and the primary plan. */
    Local number &carNbr = 0;
@@ -228,9 +228,9 @@ method ReadProgram
 end-method;
 
 method CountEligible
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /+ Returns Integer +/
-   Local UW_PESC:Utilities:CourseItem &item;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &item;
    Local integer &i, &n;
 
    &n = 0;
@@ -263,10 +263,10 @@ end-method;
 
 method FillDetail
    /+ &row as ApiObject, +/
-   /+ &item as UW_PESC:Utilities:CourseItem, +/
+   /+ &item as UW_PESC:Utilities:UW_PESC_LOAD:CourseItem, +/
    /+ &grp as Integer, +/
    /+ &equiv as Array of String, +/
-   /+ &ctx as UW_PESC:Utilities:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    Local UW_PESC:CourseType &c = &item.Course;
    Local number &units, &factor;
    Local string &v;
