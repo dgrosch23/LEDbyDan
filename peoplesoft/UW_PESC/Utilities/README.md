@@ -1,4 +1,4 @@
-# UW_PESC_LOAD: PESC College Transcript → External Education + Manual Transfer Credit
+# UW_PESC:Utilities: PESC College Transcript → External Education + Manual Transfer Credit
 
 Loads a deserialized `UW_PESC:CollegeTranscriptType` into Campus Solutions
 through two component interfaces:
@@ -7,7 +7,7 @@ through two component interfaces:
 2. **UW_TRNS_CRSE_MNL** (Course Credits - Manual): one **unposted** model per school
 
 The field mapping follows
-[`../docs/PESC_v1.8_to_ACAD_HIST_PERS_TRNS_CRSE_MNL.md`](../docs/PESC_v1.8_to_ACAD_HIST_PERS_TRNS_CRSE_MNL.md).
+[`../../docs/PESC_v1.8_to_ACAD_HIST_PERS_TRNS_CRSE_MNL.md`](../../docs/PESC_v1.8_to_ACAD_HIST_PERS_TRNS_CRSE_MNL.md).
 All CI property names come from the generated templates for your two CIs.
 
 > **Not yet compiled or run.** This was written against the pasted CI
@@ -29,7 +29,7 @@ All CI property names come from the generated templates for your two CIs.
 | `LoadResult` | Info/warning/error log, PSMessages, counts |
 | `Check` | `IsSet()` / `IsBlank()`: All()/None() for properties, which the built-ins won't take |
 
-Install in App Designer as package `UW_PESC_LOAD`. Save in this order so the
+Install in App Designer as subpackage `Utilities` of `UW_PESC`. Save in this order so the
 imports resolve: `Check` → `Config` → `LoadResult` → `Crosswalk` → `CourseItem` →
 `RecordContext` → `ExtEducationLoader` → `TransferCreditLoader` →
 `TranscriptLoader`.
@@ -38,19 +38,19 @@ imports resolve: `Check` → `Config` → `LoadResult` → `Crosswalk` → `Cour
 
 ```
 import UW_PESC:CollegeTranscriptType;
-import UW_PESC_LOAD:Config;
-import UW_PESC_LOAD:TranscriptLoader;
-import UW_PESC_LOAD:LoadResult;
+import UW_PESC:Utilities:Config;
+import UW_PESC:Utilities:TranscriptLoader;
+import UW_PESC:Utilities:LoadResult;
 
 Local UW_PESC:CollegeTranscriptType &transcript;
 /* ... deserialize the XML the way you already do, e.g.
    &transcript = &ser.XmlToObject(&xml, "UW_PESC:CollegeTranscriptType"); */
 
-Local UW_PESC_LOAD:Config &cfg = create UW_PESC_LOAD:Config();
+Local UW_PESC:Utilities:Config &cfg = create UW_PESC:Utilities:Config();
 &cfg.DataSource = "EXT";              /* your LS_DATA_SOURCE value, if any */
 
-Local UW_PESC_LOAD:TranscriptLoader &loader = create UW_PESC_LOAD:TranscriptLoader(&cfg);
-Local UW_PESC_LOAD:LoadResult &r = &loader.Load(&transcript, &emplid);
+Local UW_PESC:Utilities:TranscriptLoader &loader = create UW_PESC:Utilities:TranscriptLoader(&cfg);
+Local UW_PESC:Utilities:LoadResult &r = &loader.Load(&transcript, &emplid);
 
 Local File &log = GetFile("PESC_LOAD.log", "A", %FilePath_Relative);
 &r.WriteTo(&log);

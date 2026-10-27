@@ -1,18 +1,18 @@
 /* ===========================================================================
- * UW_PESC_LOAD:TranscriptLoader
+ * UW_PESC:Utilities:TranscriptLoader
  *
  * Entry point. Takes a deserialized UW_PESC:CollegeTranscriptType and an
  * EMPLID and loads each AcademicRecord into External Education
  * (UW_ACAD_HIST_PERS), then into Manual Transfer Credit
  * (UW_TRNS_CRSE_MNL).
  *
- *    import UW_PESC_LOAD:Config;
- *    import UW_PESC_LOAD:TranscriptLoader;
- *    import UW_PESC_LOAD:LoadResult;
+ *    import UW_PESC:Utilities:Config;
+ *    import UW_PESC:Utilities:TranscriptLoader;
+ *    import UW_PESC:Utilities:LoadResult;
  *
- *    Local UW_PESC_LOAD:TranscriptLoader &loader =
- *          create UW_PESC_LOAD:TranscriptLoader(create UW_PESC_LOAD:Config());
- *    Local UW_PESC_LOAD:LoadResult &r = &loader.Load(&transcript, &emplid);
+ *    Local UW_PESC:Utilities:TranscriptLoader &loader =
+ *          create UW_PESC:Utilities:TranscriptLoader(create UW_PESC:Utilities:Config());
+ *    Local UW_PESC:Utilities:LoadResult &r = &loader.Load(&transcript, &emplid);
  *
  * Each AcademicRecord is processed on its own. A school whose crosswalks
  * or CI saves fail is logged and skipped, and the rest still load.
@@ -29,61 +29,61 @@ import UW_PESC:AcademicSessionType;
 import UW_PESC:AcademicSessionDetailType;
 import UW_PESC:AcademicAwardType;
 import UW_PESC:CourseType;
-import UW_PESC_LOAD:Config;
-import UW_PESC_LOAD:Check;
-import UW_PESC_LOAD:Crosswalk;
-import UW_PESC_LOAD:LoadResult;
-import UW_PESC_LOAD:RecordContext;
-import UW_PESC_LOAD:CourseItem;
-import UW_PESC_LOAD:ExtEducationLoader;
-import UW_PESC_LOAD:TransferCreditLoader;
+import UW_PESC:Utilities:Config;
+import UW_PESC:Utilities:Check;
+import UW_PESC:Utilities:Crosswalk;
+import UW_PESC:Utilities:LoadResult;
+import UW_PESC:Utilities:RecordContext;
+import UW_PESC:Utilities:CourseItem;
+import UW_PESC:Utilities:ExtEducationLoader;
+import UW_PESC:Utilities:TransferCreditLoader;
 
 class TranscriptLoader
-   method TranscriptLoader(&settings As UW_PESC_LOAD:Config);
+   method TranscriptLoader(&settings As UW_PESC:Utilities:Config);
 
-   property UW_PESC_LOAD:Config Config;
-   property UW_PESC_LOAD:Crosswalk Crosswalk;
+   property UW_PESC:Utilities:Config Config;
+   property UW_PESC:Utilities:Crosswalk Crosswalk;
 
-   method Load(&transcript As UW_PESC:CollegeTranscriptType, &emplid As string) Returns UW_PESC_LOAD:LoadResult;
+   method Load(&transcript As UW_PESC:CollegeTranscriptType, &emplid As string) Returns UW_PESC:Utilities:LoadResult;
    method ResolveEmplid(&person As UW_PESC:PersonType) Returns string;
 
 private
-   instance UW_PESC_LOAD:LoadResult &res;
-   instance UW_PESC_LOAD:Check &chk;
+   instance UW_PESC:Utilities:LoadResult &res;
+   instance UW_PESC:Utilities:Check &chk;
 
-   method BuildContext(&index As integer, &acadRec As UW_PESC:AcademicRecordType, &transcript As UW_PESC:CollegeTranscriptType, &emplid As string) Returns UW_PESC_LOAD:RecordContext;
-   method AddCourses(&ctx As UW_PESC_LOAD:RecordContext, &courses As array of UW_PESC:CourseType, &detail As UW_PESC:AcademicSessionDetailType);
-   method MakeCourseItem(&course As UW_PESC:CourseType, &detail As UW_PESC:AcademicSessionDetailType) Returns UW_PESC_LOAD:CourseItem;
-   method AddAwards(&ctx As UW_PESC_LOAD:RecordContext, &awards As array of UW_PESC:AcademicAwardType);
-   method WidenDates(&ctx As UW_PESC_LOAD:RecordContext, &begin As date, &end As date);
-   method IsDuplicate(&ctx As UW_PESC_LOAD:RecordContext) Returns boolean;
-   method NextDataNbr(&ctx As UW_PESC_LOAD:RecordContext) Returns number;
+   method BuildContext(&index As integer, &acadRec As UW_PESC:AcademicRecordType, &transcript As UW_PESC:CollegeTranscriptType, &emplid As string) Returns UW_PESC:Utilities:RecordContext;
+   method AddCourses(&ctx As UW_PESC:Utilities:RecordContext, &courses As array of UW_PESC:CourseType, &detail As UW_PESC:AcademicSessionDetailType);
+   method MakeCourseItem(&course As UW_PESC:CourseType, &detail As UW_PESC:AcademicSessionDetailType) Returns UW_PESC:Utilities:CourseItem;
+   method AddAwards(&ctx As UW_PESC:Utilities:RecordContext, &awards As array of UW_PESC:AcademicAwardType);
+   method WidenDates(&ctx As UW_PESC:Utilities:RecordContext, &begin As date, &end As date);
+   method IsDuplicate(&ctx As UW_PESC:Utilities:RecordContext) Returns boolean;
+   method NextDataNbr(&ctx As UW_PESC:Utilities:RecordContext) Returns number;
    method ParseDate(&text As string) Returns date;
    method Month2(&d As date) Returns string;
 end-class;
 
 method TranscriptLoader
-   /+ &settings as UW_PESC_LOAD:Config +/
+   /+ &settings as UW_PESC:Utilities:Config +/
    %This.Config = &settings;
-   %This.Crosswalk = create UW_PESC_LOAD:Crosswalk();
-   &chk = create UW_PESC_LOAD:Check();
+   %This.Crosswalk = create UW_PESC:Utilities:Crosswalk();
+   &chk = create UW_PESC:Utilities:Check();
 end-method;
 
 method Load
    /+ &transcript as UW_PESC:CollegeTranscriptType, +/
    /+ &emplid as String +/
-   /+ Returns UW_PESC_LOAD:LoadResult +/
+   /+ Returns UW_PESC:Utilities:LoadResult +/
    Local UW_PESC:StudentType &student;
-   Local UW_PESC_LOAD:RecordContext &ctx;
-   Local UW_PESC_LOAD:ExtEducationLoader &extEd;
-   Local UW_PESC_LOAD:TransferCreditLoader &trns;
+   Local UW_PESC:Utilities:RecordContext &ctx;
+   Local UW_PESC:Utilities:ExtEducationLoader &extEd;
+   Local UW_PESC:Utilities:TransferCreditLoader &trns;
    Local string &id = &emplid;
    Local string &found = "";
    Local integer &i;
 
-   &res = create UW_PESC_LOAD:LoadResult();
-   &extEd = create UW_PESC_LOAD:ExtEducationLoader(%This.Config, %This.Crosswalk, &res);
-   &trns = create UW_PESC_LOAD:TransferCreditLoader(%This.Config, %This.Crosswalk, &res);
+   &res = create UW_PESC:Utilities:LoadResult();
+   &extEd = create UW_PESC:Utilities:ExtEducationLoader(%This.Config, %This.Crosswalk, &res);
+   &trns = create UW_PESC:Utilities:TransferCreditLoader(%This.Config, %This.Crosswalk, &res);
 
    If &transcript = Null Then
       &res.Err(0, "No transcript object.");
@@ -165,12 +165,12 @@ method BuildContext
    /+ &acadRec as UW_PESC:AcademicRecordType, +/
    /+ &transcript as UW_PESC:CollegeTranscriptType, +/
    /+ &emplid as String +/
-   /+ Returns UW_PESC_LOAD:RecordContext +/
-   Local UW_PESC_LOAD:RecordContext &ctx = create UW_PESC_LOAD:RecordContext(&index, &acadRec);
-   Local UW_PESC_LOAD:Crosswalk &xw = %This.Crosswalk;
+   /+ Returns UW_PESC:Utilities:RecordContext +/
+   Local UW_PESC:Utilities:RecordContext &ctx = create UW_PESC:Utilities:RecordContext(&index, &acadRec);
+   Local UW_PESC:Utilities:Crosswalk &xw = %This.Crosswalk;
    Local UW_PESC:AcademicSessionType &sess;
    Local UW_PESC:AcademicSessionType &latest;
-   Local UW_PESC_LOAD:CourseItem &first;
+   Local UW_PESC:Utilities:CourseItem &first;
    Local string &levelCode = "";
    Local integer &i;
 
@@ -273,10 +273,10 @@ method BuildContext
 end-method;
 
 method AddCourses
-   /+ &ctx as UW_PESC_LOAD:RecordContext, +/
+   /+ &ctx as UW_PESC:Utilities:RecordContext, +/
    /+ &courses as Array of UW_PESC:CourseType, +/
    /+ &detail as UW_PESC:AcademicSessionDetailType +/
-   Local UW_PESC_LOAD:CourseItem &item;
+   Local UW_PESC:Utilities:CourseItem &item;
    Local integer &i;
 
    If &courses = Null Then
@@ -293,11 +293,11 @@ end-method;
 method MakeCourseItem
    /+ &course as UW_PESC:CourseType, +/
    /+ &detail as UW_PESC:AcademicSessionDetailType +/
-   /+ Returns UW_PESC_LOAD:CourseItem +/
+   /+ Returns UW_PESC:Utilities:CourseItem +/
    /* Works out term, dates, unit type and skip reasons. &course may be
       Null (used to work out the "as of" term from a session alone). */
-   Local UW_PESC_LOAD:CourseItem &item = create UW_PESC_LOAD:CourseItem(&course);
-   Local UW_PESC_LOAD:Crosswalk &xw = %This.Crosswalk;
+   Local UW_PESC:Utilities:CourseItem &item = create UW_PESC:Utilities:CourseItem(&course);
+   Local UW_PESC:Utilities:Crosswalk &xw = %This.Crosswalk;
    Local string &designator = "";
    Local string &sessionType = "";
    Local string &month = "";
@@ -372,7 +372,7 @@ method MakeCourseItem
 end-method;
 
 method AddAwards
-   /+ &ctx as UW_PESC_LOAD:RecordContext, +/
+   /+ &ctx as UW_PESC:Utilities:RecordContext, +/
    /+ &awards as Array of UW_PESC:AcademicAwardType +/
    Local integer &i;
 
@@ -385,7 +385,7 @@ method AddAwards
 end-method;
 
 method WidenDates
-   /+ &ctx as UW_PESC_LOAD:RecordContext, +/
+   /+ &ctx as UW_PESC:Utilities:RecordContext, +/
    /+ &begin as Date, +/
    /+ &end as Date +/
    If All(&begin) Then
@@ -409,7 +409,7 @@ method WidenDates
 end-method;
 
 method IsDuplicate
-   /+ &ctx as UW_PESC_LOAD:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:RecordContext +/
    /+ Returns Boolean +/
    Local string &found = "";
 
@@ -418,7 +418,7 @@ method IsDuplicate
 end-method;
 
 method NextDataNbr
-   /+ &ctx as UW_PESC_LOAD:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:RecordContext +/
    /+ Returns Number +/
    Local number &maxNbr = 0;
 

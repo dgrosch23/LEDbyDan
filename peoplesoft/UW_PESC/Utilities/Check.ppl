@@ -1,5 +1,5 @@
 /* ===========================================================================
- * UW_PESC_LOAD:Check
+ * UW_PESC:Utilities:Check
  *
  * All() and None() accept only a variable, not an object property such
  * as &cfg.Institution or &row.SCHOOL_SUBJECT. These wrappers copy the

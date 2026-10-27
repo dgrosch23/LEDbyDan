@@ -1,12 +1,12 @@
 /* ===========================================================================
- * UW_PESC_LOAD:RecordContext
+ * UW_PESC:Utilities:RecordContext
  *
  * Everything worked out for one PESC AcademicRecord before any CI is
  * touched: the student, the school, careers, data number, the "as of"
  * term and the course list. ExtEducationLoader and TransferCreditLoader
  * both read it, so the two components always agree.
  *
- * Courses holds UW_PESC_LOAD:CourseItem objects and Awards holds
+ * Courses holds UW_PESC:Utilities:CourseItem objects and Awards holds
  * UW_PESC:AcademicAwardType objects. Both are declared array of any to
  * avoid typed object-array assignment.
  * ========================================================================= */

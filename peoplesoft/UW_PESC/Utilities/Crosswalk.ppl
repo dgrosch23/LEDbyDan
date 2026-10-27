@@ -1,5 +1,5 @@
 /* ===========================================================================
- * UW_PESC_LOAD:Crosswalk
+ * UW_PESC:Utilities:Crosswalk
  *
  * Translates PESC codes into Campus Solutions values. All lookups go
  * through two placeholder tables (definitions in README.md):

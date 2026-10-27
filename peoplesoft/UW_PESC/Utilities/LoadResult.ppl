@@ -1,11 +1,11 @@
 /* ===========================================================================
- * UW_PESC_LOAD:LoadResult
+ * UW_PESC:Utilities:LoadResult
  *
  * Collects what happened during a load: info, warnings, errors and the
  * PSMessages each CI call produced. Record 0 means the transcript as a
  * whole. Otherwise it is the 1-based AcademicRecord number in the file.
  *
- *    Local UW_PESC_LOAD:LoadResult &r = &loader.Load(&transcript, &emplid);
+ *    Local UW_PESC:Utilities:LoadResult &r = &loader.Load(&transcript, &emplid);
  *    If &r.HasErrors Then ... End-If;
  *    &r.WriteTo(&logFile);
  * ========================================================================= */
