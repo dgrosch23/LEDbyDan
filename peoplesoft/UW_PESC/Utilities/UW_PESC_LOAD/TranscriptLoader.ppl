@@ -25,6 +25,8 @@ import UW_PESC:CollegeTranscriptType;
 import UW_PESC:StudentType;
 import UW_PESC:PersonType;
 import UW_PESC:AcademicRecordType;
+import UW_PESC:SchoolType;
+import UW_PESC:OrganizationType;
 import UW_PESC:AcademicSessionType;
 import UW_PESC:AcademicSessionDetailType;
 import UW_PESC:AcademicAwardType;
@@ -52,6 +54,8 @@ private
    instance UW_PESC:Utilities:UW_PESC_LOAD:Check &chk;
 
    method BuildContext(&index As integer, &acadRec As UW_PESC:AcademicRecordType, &transcript As UW_PESC:CollegeTranscriptType, &emplid As string) Returns UW_PESC:Utilities:UW_PESC_LOAD:RecordContext;
+   method ResolveExtOrg(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &acadRec As UW_PESC:AcademicRecordType, &transcript As UW_PESC:CollegeTranscriptType) Returns boolean;
+   method TryExtOrg(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &orgId As string, &name As string, &source As string) Returns boolean;
    method AddCourses(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &courses As array of UW_PESC:CourseType, &detail As UW_PESC:AcademicSessionDetailType);
    method MakeCourseItem(&course As UW_PESC:CourseType, &detail As UW_PESC:AcademicSessionDetailType) Returns UW_PESC:Utilities:UW_PESC_LOAD:CourseItem;
    method AddAwards(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &awards As array of UW_PESC:AcademicAwardType);
@@ -179,12 +183,7 @@ method BuildContext
    &ctx.Emplid = &emplid;
 
    /* ---- school ---- */
-   If &acadRec.School <> Null Then
-      &ctx.SchoolName = &acadRec.School.OrganizationName;
-   End-If;
-   &ctx.ExtOrgId = &xw.ExtOrgId(&acadRec.School);
-   If &chk.IsBlank(&ctx.ExtOrgId) Then
-      &res.Err(&index, "No EXT_ORG crosswalk for school '" | &ctx.SchoolName | "'. Add an EXT_ORG row for one of its codes (ATP, CEEBACT, FICE, ACT, IPEDS, OPEID). Record skipped.");
+   If Not %This.ResolveExtOrg(&ctx, &acadRec, &transcript) Then
       &ctx.Skip = True;
       Return &ctx;
    End-If;
@@ -272,6 +271,115 @@ method BuildContext
    End-For;
 
    Return &ctx;
+end-method;
+
+method ResolveExtOrg
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &acadRec as UW_PESC:AcademicRecordType, +/
+   /+ &transcript as UW_PESC:CollegeTranscriptType +/
+   /+ Returns Boolean +/
+   /* The school can sit in three places. The first one that maps wins:
+         1. AcademicRecord/School
+         2. AcademicSession/School, sessions in file order
+         3. TransmissionData/Source/Organization (the sender), last resort
+      Sets ExtOrgId, ExtOrgSource and SchoolName on &ctx. */
+   Local UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk &xw = %This.Crosswalk;
+   Local UW_PESC:SchoolType &school;
+   Local UW_PESC:OrganizationType &srcOrg;
+   Local string &orgId, &name, &other;
+   Local string &tried = "";
+   Local boolean &found = False;
+   Local integer &i;
+   Local integer &idx = &ctx.RecordIndex;
+
+   /* 1. the record's own school */
+   &school = &acadRec.School;
+   If &school <> Null Then
+      &name = &school.OrganizationName;
+      &tried = &tried | " AcademicRecord/School '" | &name | "';";
+      &found = %This.TryExtOrg(&ctx, &xw.ExtOrgId(&school), &name, "AcademicRecord/School");
+   End-If;
+
+   /* 2. a session's school */
+   If Not &found And
+         &acadRec.AcademicSession <> Null Then
+      For &i = 1 To &acadRec.AcademicSession.Len
+         If Not &found Then
+            &school = &acadRec.AcademicSession [&i].School;
+            If &school <> Null Then
+               &name = &school.OrganizationName;
+               &tried = &tried | " AcademicSession " | &i | "/School '" | &name | "';";
+               &found = %This.TryExtOrg(&ctx, &xw.ExtOrgId(&school), &name, "AcademicSession " | &i | "/School");
+            End-If;
+         End-If;
+      End-For;
+   End-If;
+
+   /* 3. the sending organization */
+   If Not &found And
+         &transcript.TransmissionData <> Null Then
+      If &transcript.TransmissionData.Source <> Null Then
+         &srcOrg = &transcript.TransmissionData.Source.Organization;
+         If &srcOrg <> Null Then
+            &orgId = &xw.ExtOrgIdForOrg(&srcOrg);
+            &name = "";
+            If &srcOrg.OrganizationName <> Null Then
+               If &srcOrg.OrganizationName.Len > 0 Then
+                  &name = &srcOrg.OrganizationName [1];
+               End-If;
+            End-If;
+            &tried = &tried | " TransmissionData/Source/Organization '" | &name | "';";
+            &found = %This.TryExtOrg(&ctx, &orgId, &name, "TransmissionData/Source/Organization");
+         End-If;
+      End-If;
+   End-If;
+
+   If Not &found Then
+      If None(&tried) Then
+         &tried = " no School or Source/Organization element at all;";
+      End-If;
+      &res.Err(&idx, "No EXT_ORG crosswalk for any school on this record. Checked:" | &tried | " add an EXT_ORG row for one of their codes (ATP, CEEBACT, FICE, ACT, IPEDS, OPEID, LOCAL, NAME). Record skipped.");
+      Return False;
+   End-If;
+
+   /* A session at a different school (e.g. a summer elsewhere) still loads
+      under this record's org. Say so rather than splitting it silently. */
+   If &acadRec.AcademicSession <> Null Then
+      For &i = 1 To &acadRec.AcademicSession.Len
+         &school = &acadRec.AcademicSession [&i].School;
+         If &school <> Null Then
+            &other = &xw.ExtOrgId(&school);
+            If All(&other) And
+                  &other <> &ctx.ExtOrgId Then
+               &res.Warn(&idx, "AcademicSession " | &i | " names a different school (" | &other | "); its courses are loaded under " | &ctx.ExtOrgId | ".");
+            End-If;
+         End-If;
+      End-For;
+   End-If;
+   Return True;
+end-method;
+
+method TryExtOrg
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &orgId as String, +/
+   /+ &name as String, +/
+   /+ &source as String +/
+   /+ Returns Boolean +/
+   /* Keeps the first school name seen for messages, even if it didn't map. */
+   If &chk.IsBlank(&ctx.SchoolName) Then
+      &ctx.SchoolName = &name;
+   End-If;
+   If None(&orgId) Then
+      Return False;
+   End-If;
+
+   &ctx.ExtOrgId = &orgId;
+   &ctx.ExtOrgSource = &source;
+   &ctx.SchoolName = &name;
+   If &source <> "AcademicRecord/School" Then
+      &res.Info(&ctx.RecordIndex, "EXT_ORG_ID " | &orgId | " taken from " | &source | ".");
+   End-If;
+   Return True;
 end-method;
 
 method AddCourses

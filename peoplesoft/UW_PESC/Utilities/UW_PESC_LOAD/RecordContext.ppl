@@ -22,6 +22,7 @@ class RecordContext
    /* ---- external side (ACAD_HIST_PERS) ---- */
    property string ExtOrgId;
    property string SchoolName;
+   property string ExtOrgSource;
    property string ExtCareer;
    property number ExtDataNbr;
    property string ExtAcadLevel;
@@ -52,6 +53,7 @@ method RecordContext
    %This.Emplid = "";
    %This.ExtOrgId = "";
    %This.SchoolName = "";
+   %This.ExtOrgSource = "";
    %This.ExtCareer = "";
    %This.ExtDataNbr = 0;
    %This.ExtAcadLevel = "";

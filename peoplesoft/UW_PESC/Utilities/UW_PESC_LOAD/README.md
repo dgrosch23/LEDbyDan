@@ -66,7 +66,13 @@ for a school only runs after its External Education saved and checked out.
 
 ## What happens to each AcademicRecord
 
-1. **Resolve.** EXT_ORG_ID from the school codes. EXT_CAREER from
+1. **Resolve.** EXT_ORG_ID from the first of these that maps, in order:
+   `AcademicRecord/School`, each `AcademicSession/School` in file order,
+   then `TransmissionData/Source/Organization` (the sender) as a last
+   resort. The log says which one was used when it wasn't the record's own
+   school. It also warns when a session names a different school than the
+   one chosen, because those courses still load under the chosen school.
+   EXT_CAREER from
    StudentLevel (then CourseCreditLevel, then `Config.DefaultExtCareer`).
    ACAD_CAREER from EXT_CAREER. Transcript date from
    `TransmissionData/CreatedDateTime`. A term (year, EXT_TERM_TYPE,

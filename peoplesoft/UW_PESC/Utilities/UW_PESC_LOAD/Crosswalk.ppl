@@ -17,6 +17,7 @@
  * error, a warning or "leave the field alone".
  * ========================================================================= */
 import UW_PESC:SchoolType;
+import UW_PESC:OrganizationType;
 
 class Crosswalk
    method Crosswalk();
@@ -24,12 +25,14 @@ class Crosswalk
    method Lookup(&type As string, &pescValue As string) Returns string;
    method LookupFirst(&type As string, &pescValues As array of string) Returns string;
    method ExtOrgId(&school As UW_PESC:SchoolType) Returns string;
+   method ExtOrgIdForOrg(&org As UW_PESC:OrganizationType) Returns string;
    method Equivalency(&extOrgId As string, &subject As string, &crseNbr As string) Returns array of string;
 
 private
    instance array of string &cacheKeys;
    instance array of string &cacheValues;
    method TryOrg(&qualifier As string, &code As string) Returns string;
+   method FromCodes(&atp As string, &ceebact As string, &fice As string, &act As string, &ipeds As string, &opeid As string, &localCode As string, &name As string) Returns string;
 end-class;
 
 method Crosswalk
@@ -84,39 +87,38 @@ end-method;
 method ExtOrgId
    /+ &school as UW_PESC:SchoolType +/
    /+ Returns String +/
-   /* Crosswalk type EXT_ORG, value "<QUALIFIER>:<CODE>", e.g. "FICE:001234".
-      Codes are tried in this order. The first match wins. */
-   Local string &org = "";
+   /* School elements: AcademicRecord/School, AcademicSession/School. */
+   Local string &localCode = "";
 
    If &school = Null Then
       Return "";
    End-If;
+   If &school.LocalOrganizationID <> Null Then
+      &localCode = &school.LocalOrganizationID.LocalOrganizationIDCode;
+   End-If;
+   Return %This.FromCodes(&school.ATP, &school.CEEBACT, &school.FICE, &school.ACT, &school.IPEDS, &school.OPEID, &localCode, &school.OrganizationName);
+end-method;
 
-   &org = %This.TryOrg("ATP", &school.ATP);
-   If None(&org) Then
-      &org = %This.TryOrg("CEEBACT", &school.CEEBACT);
+method ExtOrgIdForOrg
+   /+ &org as UW_PESC:OrganizationType +/
+   /+ Returns String +/
+   /* Organization elements: TransmissionData/Source/Organization.
+      OrganizationName repeats here, so the first one is used. */
+   Local string &localCode = "";
+   Local string &name = "";
+
+   If &org = Null Then
+      Return "";
    End-If;
-   If None(&org) Then
-      &org = %This.TryOrg("FICE", &school.FICE);
+   If &org.LocalOrganizationID <> Null Then
+      &localCode = &org.LocalOrganizationID.LocalOrganizationIDCode;
    End-If;
-   If None(&org) Then
-      &org = %This.TryOrg("ACT", &school.ACT);
-   End-If;
-   If None(&org) Then
-      &org = %This.TryOrg("IPEDS", &school.IPEDS);
-   End-If;
-   If None(&org) Then
-      &org = %This.TryOrg("OPEID", &school.OPEID);
-   End-If;
-   If None(&org) Then
-      If &school.LocalOrganizationID <> Null Then
-         &org = %This.TryOrg("LOCAL", &school.LocalOrganizationID.LocalOrganizationIDCode);
+   If &org.OrganizationName <> Null Then
+      If &org.OrganizationName.Len > 0 Then
+         &name = &org.OrganizationName [1];
       End-If;
    End-If;
-   If None(&org) Then
-      &org = %This.TryOrg("NAME", &school.OrganizationName);
-   End-If;
-   Return &org;
+   Return %This.FromCodes(&org.ATP, &org.CEEBACT, &org.FICE, &org.ACT, &org.IPEDS, &org.OPEID, &localCode, &name);
 end-method;
 
 method Equivalency
@@ -141,6 +143,39 @@ method Equivalency
       &match.Push(String(&units));
    End-If;
    Return &match;
+end-method;
+
+method FromCodes
+   /+ &atp as String, &ceebact as String, &fice as String, &act as String, +/
+   /+ &ipeds as String, &opeid as String, &localCode as String, &name as String +/
+   /+ Returns String +/
+   /* Crosswalk type EXT_ORG, value "<QUALIFIER>:<CODE>", e.g. "FICE:001234".
+      Codes are tried in this order. The first match wins. */
+   Local string &org;
+
+   &org = %This.TryOrg("ATP", &atp);
+   If None(&org) Then
+      &org = %This.TryOrg("CEEBACT", &ceebact);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("FICE", &fice);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("ACT", &act);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("IPEDS", &ipeds);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("OPEID", &opeid);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("LOCAL", &localCode);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("NAME", &name);
+   End-If;
+   Return &org;
 end-method;
 
 method TryOrg
