@@ -107,13 +107,13 @@ Create these records in App Designer and build them. To use tables you
 already have, change only the SQL in `Crosswalk.Lookup()` and
 `Crosswalk.Equivalency()`.
 
-**UW_PESC_XWALK** (code crosswalk)
+**UW_CGER_PESC_XW** (code crosswalk)
 
 | Field | Type | Key |
 |---|---|---|
-| UW_XWALK_TYPE | Char 20 | Y |
-| UW_PESC_VALUE | Char 100 | Y |
-| UW_CS_VALUE | Char 30 | |
+| UW_CGER_XWALK_TYPE | Char 20 | Y |
+| UW_CGER_PESC_VAL | Char 100 | Y |
+| UW_CGER_CS_VAL | Char 30 | |
 
 PESC values are matched **upper-cased and trimmed**, so store them that way.
 
@@ -137,7 +137,7 @@ join.
 Leave a type empty and the field it feeds is left to the component, except
 where the table says otherwise.
 
-| UW_XWALK_TYPE | UW_PESC_VALUE (upper case) | UW_CS_VALUE | If missing |
+| UW_CGER_XWALK_TYPE | UW_CGER_PESC_VAL (upper case) | UW_CGER_CS_VAL | If missing |
 |---|---|---|---|
 | `EXT_ORG` | `ATP:1234`, `CEEBACT:…`, `FICE:001234`, `ACT:…`, `IPEDS:…`, `OPEID:…`, `LOCAL:…`, `NAME:<ORG NAME>` | EXT_ORG_ID | **record skipped (error)** |
 | `EXT_CAREER` | StudentLevelCode / CourseCreditLevel, e.g. `UNDERGRADUATE` | EXT_CAREER | `Config.DefaultExtCareer` (warning) |
@@ -165,20 +165,20 @@ where the table says otherwise.
 Sample seed rows (replace the right-hand values with your XLATs):
 
 ```sql
-INSERT INTO PS_UW_PESC_XWALK VALUES ('EXT_ORG',        'FICE:003895',  '0001234');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('EXT_CAREER',     'UNDERGRADUATE','UGRD');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('ACAD_CAREER',    'UGRD',         'UGRD');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('EXT_TERM_TYPE',  'SEMESTER',     'SEM');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('EXT_TERM',       'SEMESTER:08',  'FALL');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('EXT_TERM',       'SEMESTER:01',  'SPR');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('EXT_TERM',       '*:06',         'SUM');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('UNT_TYPE',       'SEMESTER',     'SEM');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('UNIT_FACTOR',    'QUARTER',      '0.6667');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('EXT_SUMM_TYPE',  'ALL',          'OVRL');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('GPA_TYPE',       '4',            'GPA4');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('DEGREE',         'BACHELORS:BS', 'BS');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('DEGREE_STATUS',  'TRUE',         'C');
-INSERT INTO PS_UW_PESC_XWALK VALUES ('SKIP_GRADE_STATUS','WITHDRAWN',  'Y');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_ORG',        'FICE:003895',  '0001234');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_CAREER',     'UNDERGRADUATE','UGRD');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('ACAD_CAREER',    'UGRD',         'UGRD');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_TERM_TYPE',  'SEMESTER',     'SEM');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_TERM',       'SEMESTER:08',  'FALL');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_TERM',       'SEMESTER:01',  'SPR');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_TERM',       '*:06',         'SUM');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('UNT_TYPE',       'SEMESTER',     'SEM');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('UNIT_FACTOR',    'QUARTER',      '0.6667');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_SUMM_TYPE',  'ALL',          'OVRL');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('GPA_TYPE',       '4',            'GPA4');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('DEGREE',         'BACHELORS:BS', 'BS');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('DEGREE_STATUS',  'TRUE',         'C');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('SKIP_GRADE_STATUS','WITHDRAWN',  'Y');
 ```
 
 ## CI gaps (fix before the first run)
