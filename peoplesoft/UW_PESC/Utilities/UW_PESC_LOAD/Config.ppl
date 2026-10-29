@@ -85,8 +85,8 @@ method Config
    %This.SkipDuplicateTranscripts = True;
    /* CI saves aren't committed until the run ends, and one failed save
       rolls back everything not yet committed: other schools included.
-      True = CommitWork() after each school, so a failure only loses that
-      school. Use it from App Engine; online, CommitWork() is only allowed
+      True = CommitWork() after each school's External Education and again
+      after its CCM model, so a failure only loses that one step. Use it from App Engine; online, CommitWork() is only allowed
       in some events. */
    %This.CommitEachRecord = False;
    %This.InteractiveMode = False;

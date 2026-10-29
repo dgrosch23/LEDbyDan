@@ -191,16 +191,25 @@ method Load
             /* CCM runs only if External Education (when selected) saved */
             If &ctx.ExtEdSaved Then
                &res.RecordsLoaded = &res.RecordsLoaded + 1;
+
+               /* Commit External Education first, so a CCM failure can't
+                  roll it back. */
+               If %This.Config.CommitEachRecord And
+                     &mods.ExtData Then
+                  CommitWork();
+                  &res.Info(&i, "Committed External Education for record(s) " | &ctx.RecordLabel | ".");
+               End-If;
+
                If &mods.ManualCredit Then
                   /* outcome is already logged in &res */
                   &trnsSaved = &trns.Load(&ctx);
+                  If %This.Config.CommitEachRecord Then
+                     CommitWork();
+                     If &trnsSaved Then
+                        &res.Info(&i, "Committed Course Credits - Manual for record(s) " | &ctx.RecordLabel | ".");
+                     End-If;
+                  End-If;
                End-If;
-            End-If;
-
-            /* make this school permanent before the next one can fail */
-            If %This.Config.CommitEachRecord Then
-               CommitWork();
-               &res.Info(&i, "Committed record(s) " | &ctx.RecordLabel | ".");
             End-If;
          End-If;
       End-If;

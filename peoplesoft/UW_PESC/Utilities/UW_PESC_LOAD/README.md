@@ -336,7 +336,9 @@ save, and schools loaded earlier in the run. The log checks the database
 after a failure and says whether the data row survived.
 
 Set `Config.CommitEachRecord = True` to call `CommitWork()` after each
-school, so a failure only loses that school. Use it when running from
+school's External Education, and again after its CCM model. A failure then
+only loses that one step: a failed CCM model no longer takes the school's
+External Education with it. Use it when running from
 App Engine. Online, `CommitWork()` is only allowed in some PeopleCode
 events.
 
