@@ -291,6 +291,9 @@ method FillDetail
       &row.REPEAT_CODE = &v;
    End-If;
    &v = &xw.LookupFirst("COURSE_LEVEL", CreateArray(&c.CourseLevel, &c.CourseCreditLevel));
+   If None(&v) Then
+      &v = &cfg.DefaultCourseLevel;
+   End-If;
    If All(&v) Then
       &row.COURSE_LEVEL = &v;
    End-If;

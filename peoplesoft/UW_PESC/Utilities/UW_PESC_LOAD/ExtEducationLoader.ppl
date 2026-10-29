@@ -9,7 +9,12 @@
  *
  * Courses and degrees carry the data number, and that field's prompt only
  * lists data rows already in the database. That's why the data row has to
- * be saved first. If save 2 fails, the data row stays and the log says so.
+ * be saved first.
+ *
+ * Neither save commits. Everything commits when the run ends, or per
+ * school with Config.CommitEachRecord. A failed save usually rolls back
+ * save 1 as well, so after a failure the log reports what the database
+ * actually holds.
  *
  * CI shape (from the generated template):
  *    root            EMPLID
@@ -60,6 +65,7 @@ private
    method FillOneDegree(&row As ApiObject, &award As UW_PESC:AcademicAwardType, &degree As string, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
    method DegreeExists(&degColl As ApiObject, &degree As string, &degreeDt As date) Returns boolean;
    method VerifySaved(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
+   method DataRowExists(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
 end-class;
 
 method ExtEducationLoader
@@ -139,7 +145,11 @@ method Load
       Return False;
    end-try;
    If Not %This.SaveCI(&ci, &idx, "Courses and degrees for " | &ctx.ExtOrgId) Then
-      &res.Err(&idx, "Data row " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | " was saved without its courses and degrees. Fix the errors above, then delete that data row (or set Config.SkipDuplicateTranscripts = False) and load the file again.");
+      If %This.DataRowExists(&ctx) Then
+         &res.Err(&idx, "Data row " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | " is still there without its courses and degrees. Fix the errors above, then delete that data row (or set Config.SkipDuplicateTranscripts = False) and load the file again.");
+      Else
+         &res.Err(&idx, "The failed save also rolled back data row " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | ", so nothing is saved for this school. Fix the errors above and load the file again.");
+      End-If;
       Return False;
    End-If;
 
@@ -466,7 +476,11 @@ method FillCourses
          If All(&v) Then
             &row.EXT_CRSE_TYPE_1 = &v;
          End-If;
+         /* required field */
          &v = &xw.LookupFirst("COURSE_LEVEL", CreateArray(&c.CourseLevel, &c.CourseCreditLevel));
+         If None(&v) Then
+            &v = &cfg.DefaultCourseLevel;
+         End-If;
          If All(&v) Then
             &row.COURSE_LEVEL_0 = &v;
          End-If;
@@ -637,15 +651,22 @@ end-method;
 method VerifySaved
    /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /+ Returns Boolean +/
-   Local string &found = "";
-
-   SQLExec("SELECT 'Y' FROM PS_EXT_ACAD_DATA WHERE EMPLID = :1 AND EXT_ORG_ID = :2 AND EXT_CAREER = :3 AND EXT_DATA_NBR = :4", &ctx.Emplid, &ctx.ExtOrgId, &ctx.ExtCareer, &ctx.ExtDataNbr, &found);
-
-   If &found <> "Y" Then
-      &res.Err(&ctx.RecordIndex, "UW_ACAD_HIST_PERS saved, but no EXT_ACAD_DATA row exists for career " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | ". The CI didn't carry the keys onto the new row. Add EXT_CAREER and EXT_DATA_NBR to the EXT_ACAD_DATA collection (README.md, CI gaps). Transfer credit was not loaded for this record.");
+   If Not %This.DataRowExists(&ctx) Then
+      &res.Err(&ctx.RecordIndex, "UW_ACAD_HIST_PERS saved, but no EXT_ACAD_DATA row exists for career " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | ". Check that EXT_CAREER and EXT_DATA_NBR are on the CI's EXT_ACAD_DATA collection (README.md, CI gaps). Courses, degrees and CCM were not loaded for this school.");
       Return False;
    End-If;
 
-   &res.Info(&ctx.RecordIndex, "External education saved: " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | ".");
+   &res.Info(&ctx.RecordIndex, "Academic data row saved (not committed yet): " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | ".");
    Return True;
+end-method;
+
+method DataRowExists
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Boolean +/
+   /* Sees this run's own uncommitted rows, so it reflects what will be
+      committed if the run ends now. */
+   Local string &found = "";
+
+   SQLExec("SELECT 'Y' FROM PS_EXT_ACAD_DATA WHERE EMPLID = :1 AND EXT_ORG_ID = :2 AND EXT_CAREER = :3 AND EXT_DATA_NBR = :4", &ctx.Emplid, &ctx.ExtOrgId, &ctx.ExtCareer, &ctx.ExtDataNbr, &found);
+   Return (&found = "Y");
 end-method;

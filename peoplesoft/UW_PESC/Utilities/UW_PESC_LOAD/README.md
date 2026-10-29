@@ -188,7 +188,7 @@ where the table says otherwise.
 | `CRSE_GRADE` | `<SCALE>:<GRADE>` then `<GRADE>`, e.g. `T:A*`, `D:S/A` | CRSE_GRADE_INPUT, valid for the grading scheme/basis | grade as sent, upper-cased |
 | `GRADING_BASIS` | CourseAcademicGradeScaleCode, e.g. `G`, `D`, `T` | GRADING_BASIS for EXT_COURSE | `Config.ExtGradingBasis` |
 | `SKIP_RECORD` | AcademicSummaryType, e.g. `TRANSFERONLY` | `Y` | record loaded |
-| `COURSE_LEVEL` | CourseLevel, then CourseCreditLevel | COURSE_LEVEL | blank |
+| `COURSE_LEVEL` | CourseLevel, then CourseCreditLevel, e.g. `UNDERGRADUATE` | COURSE_LEVEL (**required** on EXT_COURSE) | `Config.DefaultCourseLevel` |
 | `EXT_SUBJECT_AREA` | CourseCIPCode, then subject abbreviation | EXT_SUBJECT_AREA | blank |
 | `DEGREE` | `<LEVEL>:<TITLE>`, then `<LEVEL>`, then `<TITLE>`. PESC levels are numeric codes, e.g. `2.3:ASSOCIATE OF GENERAL STUDIES`, `2.3`, `3.1` | DEGREE | **degree skipped (warning)** |
 | `DEGREE_STATUS` | `TRUE` (conferred or dated) / `FALSE` | DEGREE_STATUS | blank |
@@ -310,7 +310,7 @@ already compile, ignore it.
    `MODULES` row for each institution that doesn't use the default.
 3. Set `Config.DataSource` / `DataMedium` / `TranscriptStatus` /
    `TranscriptFlag` to real XLAT values, or leave them blank. Set **`Config.ExtGradingScheme`,
-   `ExtGradingBasis` and `DefaultExtCrseType`** to what staff choose when
+   `ExtGradingBasis`, `DefaultExtCrseType` and `DefaultCourseLevel`** to what staff choose when
    they key an external course online. Every grade has to exist in that
    scheme and basis, or EXT_COURSE fails with "Invalid value" on
    CRSE_GRADE_INPUT.
@@ -326,6 +326,19 @@ already compile, ignore it.
    - With `NONE`: the log has one "Dry run" line per AcademicRecord, and
      nothing was saved.
 5. Run the same file again. It should be skipped as a duplicate.
+
+## Commits and rollback
+
+CI saves don't commit on their own. Everything commits when the run
+ends. If any save fails, PeopleSoft rolls back all work that isn't
+committed yet. That includes the data row from the same school's first
+save, and schools loaded earlier in the run. The log checks the database
+after a failure and says whether the data row survived.
+
+Set `Config.CommitEachRecord = True` to call `CommitWork()` after each
+school, so a failure only loses that school. Use it when running from
+App Engine. Online, `CommitWork()` is only allowed in some PeopleCode
+events.
 
 ## Things to decide later
 

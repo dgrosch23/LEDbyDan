@@ -29,6 +29,7 @@ class Config
    property string ExtGradingScheme;
    property string ExtGradingBasis;
    property string DefaultExtCrseType;
+   property string DefaultCourseLevel;
 
    /* ---- TRNS_CRSE_MNL constants ---- */
    property string TrnsfrSrcType;
@@ -41,6 +42,7 @@ class Config
 
    /* ---- behavior ---- */
    property boolean SkipDuplicateTranscripts;
+   property boolean CommitEachRecord;
    property boolean InteractiveMode;
    property number DescrLength;
 end-class;
@@ -61,6 +63,9 @@ method Config
    /* EXT_COURSE.EXT_CRSE_TYPE is required: used when crosswalk
       EXT_CRSE_TYPE has no row for the course's CourseCreditBasis */
    %This.DefaultExtCrseType = "";
+   /* EXT_COURSE.COURSE_LEVEL is required: used when crosswalk
+      COURSE_LEVEL has no row for CourseLevel / CourseCreditLevel */
+   %This.DefaultCourseLevel = "";
 
    /* E = external organization */
    %This.TrnsfrSrcType = "E";
@@ -78,6 +83,12 @@ method Config
       row, load all of External Education: "EXTDATA,EXTDEG,EXTCRSE". */
    %This.ModuleList = "";
    %This.SkipDuplicateTranscripts = True;
+   /* CI saves aren't committed until the run ends, and one failed save
+      rolls back everything not yet committed: other schools included.
+      True = CommitWork() after each school, so a failure only loses that
+      school. Use it from App Engine; online, CommitWork() is only allowed
+      in some events. */
+   %This.CommitEachRecord = False;
    %This.InteractiveMode = False;
    %This.DescrLength = 30;
 end-method;

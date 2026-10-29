@@ -196,6 +196,12 @@ method Load
                   &trnsSaved = &trns.Load(&ctx);
                End-If;
             End-If;
+
+            /* make this school permanent before the next one can fail */
+            If %This.Config.CommitEachRecord Then
+               CommitWork();
+               &res.Info(&i, "Committed record(s) " | &ctx.RecordLabel | ".");
+            End-If;
          End-If;
       End-If;
    End-For;
