@@ -25,6 +25,7 @@ class Crosswalk
 
    method Lookup(&type As string, &pescValue As string) Returns string;
    method LookupFirst(&type As string, &pescValues As array of string) Returns string;
+   method CourseGrade(&scale As string, &grade As string) Returns string;
    method ExtOrgId(&school As UW_PESC:SchoolType) Returns string;
    method ExtOrgIdForOrg(&org As UW_PESC:OrganizationType) Returns string;
 
@@ -82,6 +83,25 @@ method LookupFirst
       End-If;
    End-For;
    Return "";
+end-method;
+
+method CourseGrade
+   /+ &scale as String, +/
+   /+ &grade as String +/
+   /+ Returns String +/
+   /* Crosswalk CRSE_GRADE: "<SCALE>:<GRADE>" first (e.g. "T:A*"), then the
+      grade alone. With no row the grade goes in as sent, upper-cased. */
+   Local string &mapped;
+   Local string &raw = Upper(LTrim(RTrim(&grade)));
+
+   If None(&raw) Then
+      Return "";
+   End-If;
+   &mapped = %This.LookupFirst("CRSE_GRADE", CreateArray(&scale | ":" | &raw, &raw));
+   If None(&mapped) Then
+      Return &raw;
+   End-If;
+   Return &mapped;
 end-method;
 
 method ExtOrgId

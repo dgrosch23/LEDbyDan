@@ -120,6 +120,13 @@ crosswalk, save error) is logged and the rest still load.
    `TransmissionData/CreatedDateTime`. A term (year, EXT_TERM_TYPE,
    EXT_TERM) for every course. The "as of" term is the session that starts
    last.
+   **Records for the same school and career are merged** and loaded as
+   one: one data row, one Manual model. Some senders, Parchment among
+   them, split a single transcript into records by summary type. Record 1
+   holds the degree and "All" GPA, record 2 the "TransferOnly" courses
+   from other schools, and record 3 the "SenderOnly" courses. Records 1
+   and 3 are the same school, so they share a data row. The log says when
+   a record was merged.
 2. **Duplicate check.** If an `EXT_ACAD_DATA` row already exists for the
    same school, career and transcript date, the record is skipped
    (`Config.SkipDuplicateTranscripts`).
@@ -177,10 +184,13 @@ where the table says otherwise.
 | `UNT_TYPE` | CourseCreditUnits / GPA CreditUnit: `SEMESTER`, `QUARTER`, … | UNT_TYPE | blank |
 | `EXT_SUMM_TYPE` | AcademicSummaryType: `ALL`, `SENDERONLY`, … | EXT_SUMM_TYPE | **summary skipped** |
 | `GPA_TYPE` | GPARangeMaximum as text: `4`, `5`, `100` | GPA_TYPE | blank |
-| `EXT_CRSE_TYPE` | CourseCreditBasis: `REGULAR`, `ADVANCEDPLACEMENT`, … | EXT_CRSE_TYPE | blank |
+| `EXT_CRSE_TYPE` | CourseCreditBasis: `REGULAR`, `ADVANCEDPLACEMENT`, … | EXT_CRSE_TYPE (**required**) | `Config.DefaultExtCrseType` |
+| `CRSE_GRADE` | `<SCALE>:<GRADE>` then `<GRADE>`, e.g. `T:A*`, `D:S/A` | CRSE_GRADE_INPUT, valid for the grading scheme/basis | grade as sent, upper-cased |
+| `GRADING_BASIS` | CourseAcademicGradeScaleCode, e.g. `G`, `D`, `T` | GRADING_BASIS for EXT_COURSE | `Config.ExtGradingBasis` |
+| `SKIP_RECORD` | AcademicSummaryType, e.g. `TRANSFERONLY` | `Y` | record loaded |
 | `COURSE_LEVEL` | CourseLevel, then CourseCreditLevel | COURSE_LEVEL | blank |
 | `EXT_SUBJECT_AREA` | CourseCIPCode, then subject abbreviation | EXT_SUBJECT_AREA | blank |
-| `DEGREE` | `<LEVEL>:<TITLE>`, then `<LEVEL>`, then `<TITLE>`, e.g. `BACHELORS:BS` | DEGREE | **degree skipped (warning)** |
+| `DEGREE` | `<LEVEL>:<TITLE>`, then `<LEVEL>`, then `<TITLE>`. PESC levels are numeric codes, e.g. `2.3:ASSOCIATE OF GENERAL STUDIES`, `2.3`, `3.1` | DEGREE | **degree skipped (warning)** |
 | `DEGREE_STATUS` | `TRUE` (conferred or dated) / `FALSE` | DEGREE_STATUS | blank |
 | `HONORS_CATEGORY` | HonorsLevel, then HonorsTitle | HONORS_CATEGORY | blank |
 | `FIELD_OF_STUDY` | ProgramCIPCode, then AcademicProgramName | FIELD_OF_STUDY | blank |
@@ -203,7 +213,10 @@ INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_TERM',       '*:06',         'SUM');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('UNT_TYPE',       'SEMESTER',     'SEM');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_SUMM_TYPE',  'ALL',          'OVRL');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('GPA_TYPE',       '4',            'GPA4');
-INSERT INTO PS_UW_CGER_PESC_XW VALUES ('DEGREE',         'BACHELORS:BS', 'BS');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('DEGREE',         '2.3',          'AGS');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_CRSE_TYPE',  'REGULAR',      'REG');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('CRSE_GRADE',     'T:A*',         'A');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('GRADING_BASIS',  'D',            'SUS');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('DEGREE_STATUS',  'TRUE',         'C');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('SKIP_GRADE_STATUS','WITHDRAWN',  'Y');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('MODULES',        'UWRVF',        'EXTDATA,EXTDEG,CCM');
@@ -271,8 +284,12 @@ already compile, ignore it.
 2. Seed at least `EXT_ORG`, `EXT_CAREER`, `EXT_TERM_TYPE`, `EXT_TERM`,
    `UNT_TYPE`, `EXT_SUMM_TYPE`, `DEGREE` for one test school, plus a
    `MODULES` row for each institution that doesn't use the default.
-3. Set `Config.DataSource` / `DataMedium` / `TranscriptStatus` /
-   grading scheme and basis to real XLAT values, or leave them blank.
+3. Set `Config.DataSource` / `DataMedium` / `TranscriptStatus` to real XLAT
+   values, or leave them blank. Set **`Config.ExtGradingScheme`,
+   `ExtGradingBasis` and `DefaultExtCrseType`** to what staff choose when
+   they key an external course online. Every grade has to exist in that
+   scheme and basis, or EXT_COURSE fails with "Invalid value" on
+   CRSE_GRADE_INPUT.
 4. Run one transcript for a test student. Then check:
    - Education page: one new data row, courses on the right term, degree.
    - `LoadResult`: no errors. Read the PSMSG lines, because component

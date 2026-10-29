@@ -268,8 +268,9 @@ method FillDetail
    &row.SCHOOL_CRSE_NBR = Upper(&c.CourseNumber);
    &row.DESCR_0 = Left(&c.CourseTitle, &cfg.DescrLength);
    &row.UNT_TAKEN_1 = &c.CourseCreditValue;
-   If &chk.IsSet(&c.CourseAcademicGrade) Then
-      &row.CRSE_GRADE_INPUT_0 = Upper(&c.CourseAcademicGrade);
+   &v = &xw.CourseGrade(&c.CourseAcademicGradeScaleCode, &c.CourseAcademicGrade);
+   If All(&v) Then
+      &row.CRSE_GRADE_INPUT_0 = &v;
    End-If;
 
    /* The equivalent course is left for staff to enter. A placeholder is

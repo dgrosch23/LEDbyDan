@@ -178,8 +178,9 @@ method SetOrgDefaults
    /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /* ACAD_HISTORY holds the defaults that new EXT_ACAD_DATA / EXT_COURSE /
       EXT_DEGREE rows copy. Set them before inserting child rows. */
+   /* EXT_DATA_NBR is not defaulted here: its prompt only lists data
+      numbers already saved, so a new one fails with "Invalid value". */
    &org.EXT_CAREER = &ctx.ExtCareer;
-   &org.EXT_DATA_NBR = &ctx.ExtDataNbr;
    If &chk.IsSet(&cfg.Institution) Then
       &org.INSTITUTION = &cfg.Institution;
    End-If;
@@ -250,19 +251,16 @@ end-method;
 method FillSummaries
    /+ &sumColl as ApiObject, +/
    /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
-   /* Only AcademicRecord/AcademicSummary (career totals). Session-level
-      summaries are term GPAs and have no place in External Education. */
-   Local array of UW_PESC:AcademicSummaryFType &sums = &ctx.AcademicRecord.AcademicSummary;
+   /* Only AcademicRecord/AcademicSummary (career totals), collected from
+      every record merged into &ctx. Session-level summaries are term GPAs
+      and have no place in External Education. */
+   Local array of any &sums = &ctx.Summaries;
    Local UW_PESC:AcademicSummaryFType &s;
    Local array of string &usedTypes = CreateArrayRept("", 0);
    Local ApiObject &row;
    Local string &summType, &gpaType, &unitType;
    Local integer &i;
    Local integer &idx = &ctx.RecordIndex;
-
-   If &sums = Null Then
-      Return;
-   End-If;
 
    For &i = 1 To &sums.Len
       &s = &sums [&i];
@@ -396,14 +394,25 @@ method FillCourses
          If &chk.IsSet(&cfg.ExtGradingScheme) Then
             &row.GRADING_SCHEME_0 = &cfg.ExtGradingScheme;
          End-If;
-         If &chk.IsSet(&cfg.ExtGradingBasis) Then
-            &row.GRADING_BASIS_0 = &cfg.ExtGradingBasis;
+         /* grading basis per grade scale (e.g. D = developmental), then
+            Config; the grade must be valid for the scheme and basis */
+         &v = &xw.Lookup("GRADING_BASIS", &c.CourseAcademicGradeScaleCode);
+         If None(&v) Then
+            &v = &cfg.ExtGradingBasis;
          End-If;
-         If &chk.IsSet(&c.CourseAcademicGrade) Then
-            &row.CRSE_GRADE_INPUT = Upper(&c.CourseAcademicGrade);
+         If All(&v) Then
+            &row.GRADING_BASIS_0 = &v;
+         End-If;
+         &v = &xw.CourseGrade(&c.CourseAcademicGradeScaleCode, &c.CourseAcademicGrade);
+         If All(&v) Then
+            &row.CRSE_GRADE_INPUT = &v;
          End-If;
 
+         /* required field */
          &v = &xw.Lookup("EXT_CRSE_TYPE", &c.CourseCreditBasis);
+         If None(&v) Then
+            &v = &cfg.DefaultExtCrseType;
+         End-If;
          If All(&v) Then
             &row.EXT_CRSE_TYPE_1 = &v;
          End-If;

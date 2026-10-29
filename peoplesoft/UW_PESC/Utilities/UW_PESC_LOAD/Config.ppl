@@ -27,6 +27,7 @@ class Config
    property string TranscriptStatus;
    property string ExtGradingScheme;
    property string ExtGradingBasis;
+   property string DefaultExtCrseType;
 
    /* ---- TRNS_CRSE_MNL constants ---- */
    property string TrnsfrSrcType;
@@ -54,6 +55,9 @@ method Config
    %This.TranscriptStatus = "";
    %This.ExtGradingScheme = "";
    %This.ExtGradingBasis = "";
+   /* EXT_COURSE.EXT_CRSE_TYPE is required: used when crosswalk
+      EXT_CRSE_TYPE has no row for the course's CourseCreditBasis */
+   %This.DefaultExtCrseType = "";
 
    /* E = external organization */
    %This.TrnsfrSrcType = "E";

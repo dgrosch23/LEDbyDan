@@ -6,9 +6,14 @@
  * term and the course list. ExtEducationLoader and TransferCreditLoader
  * both read it, so the two components always agree.
  *
- * Courses holds UW_PESC:Utilities:UW_PESC_LOAD:CourseItem objects and Awards holds
- * UW_PESC:AcademicAwardType objects. Both are declared array of any to
- * avoid typed object-array assignment.
+ * Courses holds UW_PESC:Utilities:UW_PESC_LOAD:CourseItem objects, Awards
+ * holds UW_PESC:AcademicAwardType and Summaries holds
+ * UW_PESC:AcademicSummaryFType. All are declared array of any to avoid
+ * typed object-array assignment.
+ *
+ * Several AcademicRecords that resolve to the same school and career are
+ * merged into one context (see TranscriptLoader.MergeInto), so they share
+ * one External Education data row. RecordLabel lists them, e.g. "1+3".
  * ========================================================================= */
 import UW_PESC:AcademicRecordType;
 
@@ -36,6 +41,8 @@ class RecordContext
    property string UnitType;
    property array of any Courses;
    property array of any Awards;
+   property array of any Summaries;
+   property string RecordLabel;
 
    /* ---- your side (TRNS_CRSE_MNL) ---- */
    property string AcadCareer;
@@ -64,6 +71,8 @@ method RecordContext
    %This.UnitType = "";
    %This.Courses = CreateArrayAny();
    %This.Awards = CreateArrayAny();
+   %This.Summaries = CreateArrayAny();
+   %This.RecordLabel = String(&index);
    %This.AcadCareer = "";
    %This.Skip = False;
    %This.ExtEdSaved = False;

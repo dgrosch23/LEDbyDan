@@ -25,6 +25,7 @@ import UW_PESC:CollegeTranscriptType;
 import UW_PESC:StudentType;
 import UW_PESC:PersonType;
 import UW_PESC:AcademicRecordType;
+import UW_PESC:AcademicSummaryFType;
 import UW_PESC:SchoolType;
 import UW_PESC:OrganizationType;
 import UW_PESC:AcademicSessionType;
@@ -66,6 +67,8 @@ private
    method ResolveModules() Returns UW_PESC:Utilities:UW_PESC_LOAD:Modules;
    method IsDuplicateModel(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
    method LogDryRun(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FindMatch(&contexts As array of any, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns integer;
+   method MergeInto(&target As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &src As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
    method ParseDate(&text As string) Returns date;
    method Month2(&d As date) Returns string;
 end-class;
@@ -89,6 +92,9 @@ method Load
    Local string &found = "";
    Local boolean &trnsSaved, &dup;
    Local UW_PESC:Utilities:UW_PESC_LOAD:Modules &mods;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:RecordContext &target;
+   Local array of any &contexts = CreateArrayAny();
+   Local integer &at, &n;
    Local integer &i;
 
    &res = create UW_PESC:Utilities:UW_PESC_LOAD:LoadResult();
@@ -133,44 +139,61 @@ method Load
    &mods = %This.ResolveModules();
    &res.Info(0, "Institution " | %This.Config.Institution | " modules: " | &mods.ToText() | ".");
 
+   /* Pass 1: resolve every AcademicRecord. Records for the same school
+      and career are merged, because some senders (Parchment, for one)
+      split one transcript into records by summary type: "All", then
+      "SenderOnly" courses, then "TransferOnly" courses. */
    For &i = 1 To &student.AcademicRecord.Len
       &ctx = %This.BuildContext(&i, &student.AcademicRecord [&i], &transcript, &id);
-
       If Not &ctx.Skip Then
-         If Not &mods.AnySelected() Then
-            %This.LogDryRun(&ctx);
+         &at = %This.FindMatch(&contexts, &ctx);
+         If &at > 0 Then
+            &target = &contexts [&at];
+            %This.MergeInto(&target, &ctx);
          Else
-            /* duplicate check: by transcript date when External Education
-               is loaded, otherwise by an existing Manual model */
-            &dup = False;
-            If %This.Config.SkipDuplicateTranscripts Then
-               If &mods.ExtData Then
-                  If %This.IsDuplicate(&ctx) Then
-                     &dup = True;
-                     &res.Warn(&i, "A transcript dated " | &ctx.TranscriptDt | " is already on file for " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | "; record skipped.");
-                  End-If;
-               Else
-                  If %This.IsDuplicateModel(&ctx) Then
-                     &dup = True;
-                     &res.Warn(&i, "A Course Credits - Manual model already exists for " | &ctx.ExtOrgId | " / " | &ctx.AcadCareer | "; record skipped.");
-                  End-If;
+            &contexts.Push(&ctx);
+         End-If;
+      End-If;
+   End-For;
+
+   /* Pass 2: load each school/career once */
+   For &n = 1 To &contexts.Len
+      &ctx = &contexts [&n];
+      &i = &ctx.RecordIndex;
+
+      If Not &mods.AnySelected() Then
+         %This.LogDryRun(&ctx);
+      Else
+         /* duplicate check: by transcript date when External Education
+            is loaded, otherwise by an existing Manual model */
+         &dup = False;
+         If %This.Config.SkipDuplicateTranscripts Then
+            If &mods.ExtData Then
+               If %This.IsDuplicate(&ctx) Then
+                  &dup = True;
+                  &res.Warn(&i, "A transcript dated " | &ctx.TranscriptDt | " is already on file for " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | "; record(s) " | &ctx.RecordLabel | " skipped.");
+               End-If;
+            Else
+               If %This.IsDuplicateModel(&ctx) Then
+                  &dup = True;
+                  &res.Warn(&i, "A Course Credits - Manual model already exists for " | &ctx.ExtOrgId | " / " | &ctx.AcadCareer | "; record(s) " | &ctx.RecordLabel | " skipped.");
                End-If;
             End-If;
+         End-If;
 
-            If Not &dup Then
-               &ctx.ExtEdSaved = True;
-               If &mods.ExtData Then
-                  &ctx.ExtDataNbr = %This.NextDataNbr(&ctx);
-                  &ctx.ExtEdSaved = &extEd.Load(&ctx, &mods);
-               End-If;
+         If Not &dup Then
+            &ctx.ExtEdSaved = True;
+            If &mods.ExtData Then
+               &ctx.ExtDataNbr = %This.NextDataNbr(&ctx);
+               &ctx.ExtEdSaved = &extEd.Load(&ctx, &mods);
+            End-If;
 
-               /* CCM runs only if External Education (when selected) saved */
-               If &ctx.ExtEdSaved Then
-                  &res.RecordsLoaded = &res.RecordsLoaded + 1;
-                  If &mods.ManualCredit Then
-                     /* outcome is already logged in &res */
-                     &trnsSaved = &trns.Load(&ctx);
-                  End-If;
+            /* CCM runs only if External Education (when selected) saved */
+            If &ctx.ExtEdSaved Then
+               &res.RecordsLoaded = &res.RecordsLoaded + 1;
+               If &mods.ManualCredit Then
+                  /* outcome is already logged in &res */
+                  &trnsSaved = &trns.Load(&ctx);
                End-If;
             End-If;
          End-If;
@@ -206,6 +229,7 @@ method BuildContext
    Local UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk &xw = %This.Crosswalk;
    Local UW_PESC:AcademicSessionType &sess;
    Local UW_PESC:AcademicSessionType &latest;
+   Local UW_PESC:AcademicSummaryFType &summ;
    Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &first;
    Local string &levelCode = "";
    Local integer &i;
@@ -216,6 +240,23 @@ method BuildContext
    If Not %This.ResolveExtOrg(&ctx, &acadRec, &transcript) Then
       &ctx.Skip = True;
       Return &ctx;
+   End-If;
+
+   /* ---- record-level summaries; crosswalk SKIP_RECORD can drop a whole
+      record by summary type (e.g. TRANSFERONLY: courses the sender
+      accepted from other schools) ---- */
+   If &acadRec.AcademicSummary <> Null Then
+      For &i = 1 To &acadRec.AcademicSummary.Len
+         &summ = &acadRec.AcademicSummary [&i];
+         &ctx.Summaries.Push(&summ);
+         If %This.Crosswalk.Lookup("SKIP_RECORD", &summ.AcademicSummaryType) = "Y" Then
+            &res.Info(&index, "Skipped: summary type " | &summ.AcademicSummaryType | " is set to SKIP_RECORD.");
+            &ctx.Skip = True;
+         End-If;
+      End-For;
+      If &ctx.Skip Then
+         Return &ctx;
+      End-If;
    End-If;
 
    /* ---- transcript header ---- */
@@ -564,6 +605,65 @@ method NextDataNbr
 
    SQLExec("SELECT MAX(EXT_DATA_NBR) FROM PS_EXT_ACAD_DATA WHERE EMPLID = :1 AND EXT_ORG_ID = :2 AND EXT_CAREER = :3", &ctx.Emplid, &ctx.ExtOrgId, &ctx.ExtCareer, &maxNbr);
    Return &maxNbr + 1;
+end-method;
+
+method FindMatch
+   /+ &contexts as Array of Any, +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Integer +/
+   Local UW_PESC:Utilities:UW_PESC_LOAD:RecordContext &other;
+   Local integer &i;
+
+   For &i = 1 To &contexts.Len
+      &other = &contexts [&i];
+      If &other.ExtOrgId = &ctx.ExtOrgId And
+            &other.ExtCareer = &ctx.ExtCareer Then
+         Return &i;
+      End-If;
+   End-For;
+   Return 0;
+end-method;
+
+method MergeInto
+   /+ &target as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &src as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /* Adds &src's courses, awards and summaries to &target, widens the
+      attendance dates and keeps the later "as of" term. */
+   Local integer &i;
+   Local date &from, &to;
+   Local string &v;
+
+   For &i = 1 To &src.Courses.Len
+      &target.Courses.Push(&src.Courses [&i]);
+   End-For;
+   For &i = 1 To &src.Awards.Len
+      &target.Awards.Push(&src.Awards [&i]);
+   End-For;
+   For &i = 1 To &src.Summaries.Len
+      &target.Summaries.Push(&src.Summaries [&i]);
+   End-For;
+
+   &from = &src.FromDt;
+   &to = &src.ToDt;
+   %This.WidenDates(&target, &from, &to);
+
+   If &src.AsOfTermYear > &target.AsOfTermYear Then
+      &target.AsOfTermYear = &src.AsOfTermYear;
+      &target.AsOfExtTermType = &src.AsOfExtTermType;
+      &target.AsOfExtTerm = &src.AsOfExtTerm;
+   End-If;
+
+   &v = &target.UnitType;
+   If None(&v) Then
+      &target.UnitType = &src.UnitType;
+   End-If;
+   &v = &target.ExtAcadLevel;
+   If None(&v) Then
+      &target.ExtAcadLevel = &src.ExtAcadLevel;
+   End-If;
+
+   &target.RecordLabel = &target.RecordLabel | "+" | &src.RecordLabel;
+   &res.Info(&src.RecordIndex, "Same school and career as AcademicRecord " | &target.RecordIndex | " (" | &target.ExtOrgId | " / " | &target.ExtCareer | "); loaded together with it.");
 end-method;
 
 method ResolveModules
