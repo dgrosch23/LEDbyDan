@@ -232,12 +232,12 @@ The generated templates show some key fields that your CIs don't expose.
    (left pane) onto the `TRNS_CRSE_TERM` collection, and save. Until you
    do, every transfer credit load fails with a message naming the
    property. Add `MODEL_STATUS` too if you later want to post from code.
-2. **UW_ACAD_HIST_PERS → `EXT_ACAD_DATA` doesn't expose `EXT_CAREER` /
-   `EXT_DATA_NBR`.** The loader sets the `ACAD_HISTORY` defaults of the
-   same name, which new rows normally copy, and sets the row keys too if
-   they exist. After the save it checks with SQL. If the row isn't there,
-   you get an error that says to add both fields to the `EXT_ACAD_DATA`
-   collection. Adding them now removes the guesswork.
+2. **UW_ACAD_HIST_PERS → `EXT_ACAD_DATA` must expose `EXT_CAREER` and
+   `EXT_DATA_NBR`.** The generated CI leaves out these key fields. Add both
+   to the collection (done in UWRVF's CI). The loader sets them on the new
+   data row and checks with SQL after the save that the row exists under
+   those keys. ACAD_HISTORY's own `EXT_DATA_NBR` default is not set,
+   because its prompt rejects a data number that isn't saved yet.
 3. **`MODEL_NBR`, `EXT_COURSE_NBR` and `EXT_DEGREE_NBR` aren't exposed.**
    That's expected: the component assigns them. The loader reads the new
    MODEL_NBR back with SQL for the log. Transfer credit rows link to
