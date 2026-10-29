@@ -1,9 +1,15 @@
 /* ===========================================================================
  * UW_PESC:Utilities:UW_PESC_LOAD:ExtEducationLoader
  *
- * Loads one PESC AcademicRecord into External Education through the
- * UW_ACAD_HIST_PERS component interface. Each call gets the CI, saves
- * once and cancels, so a failure only loses that record.
+ * Loads one PESC AcademicRecord (or several merged ones for the same
+ * school) into External Education through UW_ACAD_HIST_PERS, in two saves:
+ *
+ *    1. the academic data row and its summaries
+ *    2. courses and degrees (EXTCRSE / EXTDEG modules)
+ *
+ * Courses and degrees carry the data number, and that field's prompt only
+ * lists data rows already in the database. That's why the data row has to
+ * be saved first. If save 2 fails, the data row stays and the log says so.
  *
  * CI shape (from the generated template):
  *    root            EMPLID
@@ -13,11 +19,9 @@
  *      EXT_COURSE    EXT_COURSE_NBR is assigned by the component
  *      EXT_DEGREE    EXT_DEGREE_NBR is assigned by the component
  *
- * The CI doesn't expose EXT_ACAD_DATA's keys (EXT_CAREER, EXT_DATA_NBR).
- * This class sets them on the row if the CI has them, and always sets the
- * ACAD_HISTORY defaults that new rows copy. After the save it checks with
- * SQL that the row landed under the expected keys and reports an error
- * if it didn't. See README.md, "CI gaps".
+ * EXT_ACAD_DATA's keys (EXT_CAREER, EXT_DATA_NBR) must be added to the
+ * generated CI. After save 1, SQL checks that the row landed under those
+ * keys. See README.md, "CI gaps".
  * ========================================================================= */
 import UW_PESC:AcademicSummaryFType;
 import UW_PESC:AcademicAwardType;
@@ -45,6 +49,8 @@ private
    instance integer &pendingCourses;
    instance integer &pendingDegrees;
 
+   method OpenCI(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns ApiObject;
+   method SaveCI(&ci As ApiObject, &idx As integer, &what As string) Returns boolean;
    method FindOrAddOrg(&orgColl As ApiObject, &extOrgId As string) Returns ApiObject;
    method SetOrgDefaults(&org As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
    method FillAcadData(&data As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
@@ -76,24 +82,11 @@ method Load
    &pendingCourses = 0;
    &pendingDegrees = 0;
 
-   &ci = %Session.GetCompIntfc(CompIntfc.UW_ACAD_HIST_PERS);
+   /* ---- save 1: academic data row + summaries ---- */
+   &ci = %This.OpenCI(&ctx);
    If &ci = Null Then
-      &res.AddPSMessages(&idx, "GetCompIntfc UW_ACAD_HIST_PERS");
-      &res.Err(&idx, "Could not get component interface UW_ACAD_HIST_PERS.");
       Return False;
    End-If;
-
-   &ci.InteractiveMode = &cfg.InteractiveMode;
-   &ci.GetHistoryItems = True;
-   &ci.EditHistoryItems = False;
-   &ci.EMPLID = &ctx.Emplid;
-
-   If Not &ci.Get() Then
-      &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS.Get");
-      &res.Err(&idx, "UW_ACAD_HIST_PERS Get failed for EMPLID " | &ctx.Emplid | ".");
-      Return False;
-   End-If;
-
    try
       &org = %This.FindOrAddOrg(&ci.ACAD_HISTORY, &ctx.ExtOrgId);
       %This.SetOrgDefaults(&org, &ctx);
@@ -109,38 +102,92 @@ method Load
       End-If;
       %This.FillAcadData(&data, &ctx);
       %This.FillSummaries(&data.EXT_ACAD_SUM, &ctx);
+   catch Exception &e1
+      &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS");
+      &res.Err(&idx, "UW_ACAD_HIST_PERS load stopped: " | &e1.ToString());
+      &ci.Cancel();
+      Return False;
+   end-try;
+   If Not %This.SaveCI(&ci, &idx, "Academic data for " | &ctx.ExtOrgId) Then
+      Return False;
+   End-If;
+   If Not %This.VerifySaved(&ctx) Then
+      Return False;
+   End-If;
 
-      /* EXTCRSE / EXTDEG modules; the data row above is always written */
+   /* ---- save 2: courses and degrees, now that the data row exists ---- */
+   If Not (&mods.ExtCourses Or
+         &mods.ExtDegrees) Then
+      Return True;
+   End-If;
+   &ci = %This.OpenCI(&ctx);
+   If &ci = Null Then
+      Return False;
+   End-If;
+   try
+      &org = %This.FindOrAddOrg(&ci.ACAD_HISTORY, &ctx.ExtOrgId);
       If &mods.ExtCourses Then
          %This.FillCourses(&org.EXT_COURSE, &ctx);
       End-If;
       If &mods.ExtDegrees Then
          %This.FillDegrees(&org.EXT_DEGREE, &ctx);
       End-If;
-
-      If Not &ci.Save() Then
-         &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS.Save");
-         &res.Err(&idx, "UW_ACAD_HIST_PERS Save failed. Nothing was saved for EXT_ORG_ID " | &ctx.ExtOrgId | ".");
-         &ci.Cancel();
-         Return False;
-      End-If;
-   catch Exception &e
+   catch Exception &e2
       &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS");
-      &res.Err(&idx, "UW_ACAD_HIST_PERS load stopped: " | &e.ToString());
+      &res.Err(&idx, "UW_ACAD_HIST_PERS course/degree load stopped: " | &e2.ToString());
       &ci.Cancel();
       Return False;
    end-try;
-
-   /* warnings raised during a successful save */
-   &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS.Save");
-   &ci.Cancel();
-
-   If Not %This.VerifySaved(&ctx) Then
+   If Not %This.SaveCI(&ci, &idx, "Courses and degrees for " | &ctx.ExtOrgId) Then
+      &res.Err(&idx, "Data row " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | " was saved without its courses and degrees. Fix the errors above, then delete that data row (or set Config.SkipDuplicateTranscripts = False) and load the file again.");
       Return False;
    End-If;
+
    &res.CoursesLoaded = &res.CoursesLoaded + &pendingCourses;
    &res.DegreesLoaded = &res.DegreesLoaded + &pendingDegrees;
    Return True;
+end-method;
+
+method OpenCI
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns ApiObject +/
+   Local ApiObject &ci;
+   Local integer &idx = &ctx.RecordIndex;
+
+   &ci = %Session.GetCompIntfc(CompIntfc.UW_ACAD_HIST_PERS);
+   If &ci = Null Then
+      &res.AddPSMessages(&idx, "GetCompIntfc UW_ACAD_HIST_PERS");
+      &res.Err(&idx, "Could not get component interface UW_ACAD_HIST_PERS.");
+      Return Null;
+   End-If;
+
+   &ci.InteractiveMode = &cfg.InteractiveMode;
+   &ci.GetHistoryItems = True;
+   &ci.EditHistoryItems = False;
+   &ci.EMPLID = &ctx.Emplid;
+
+   If Not &ci.Get() Then
+      &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS.Get");
+      &res.Err(&idx, "UW_ACAD_HIST_PERS Get failed for EMPLID " | &ctx.Emplid | ".");
+      Return Null;
+   End-If;
+   Return &ci;
+end-method;
+
+method SaveCI
+   /+ &ci as ApiObject, +/
+   /+ &idx as Integer, +/
+   /+ &what as String +/
+   /+ Returns Boolean +/
+   Local boolean &ok;
+
+   &ok = &ci.Save();
+   &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS.Save");
+   If Not &ok Then
+      &res.Err(&idx, &what | ": UW_ACAD_HIST_PERS Save failed; nothing in this save was kept.");
+   End-If;
+   &ci.Cancel();
+   Return &ok;
 end-method;
 
 method FindOrAddOrg
