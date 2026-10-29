@@ -4,7 +4,20 @@ Loads a deserialized `UW_PESC:CollegeTranscriptType` into Campus Solutions
 through two component interfaces:
 
 1. **UW_ACAD_HIST_PERS** (External Education): `EXT_ACAD_DATA`, `EXT_ACAD_SUM`, `EXT_COURSE`, `EXT_DEGREE`
-2. **UW_TRNS_CRSE_MNL** (Course Credits - Manual): one **unposted** model per school
+2. **UW_TRNS_CRSE_MNL** (Course Credits - Manual): for `MANUAL` schools only, one **unposted** model per school holding the incoming courses
+
+The package only enters transcript data. It never works out equivalencies.
+Everything after the data is in (review, equivalencies, posting) stays with
+each school's current process.
+
+| Mode | For schools that… | What gets loaded |
+|---|---|---|
+| `EXTED` (default) | keep equivalency rules in PeopleSoft and post from External Education to Course Credits | External Education only |
+| `MANUAL` | get equivalencies from a 3rd-party application and enter them in Course Credits - Manual | External Education, plus a Manual model with the incoming courses filled in and the equivalent courses left blank |
+
+The mode is set per institution with crosswalk type `TC_MODE` (value =
+INSTITUTION, result = `MANUAL` or `EXTED`). Institutions with no row get
+`EXTED`. `Config.TransferCreditMode` overrides the table for one run.
 
 The field mapping follows
 [`../../../docs/PESC_v1.8_to_ACAD_HIST_PERS_TRNS_CRSE_MNL.md`](../../../docs/PESC_v1.8_to_ACAD_HIST_PERS_TRNS_CRSE_MNL.md).
@@ -22,7 +35,7 @@ All CI property names come from the generated templates for your two CIs.
 | `TranscriptLoader` | Entry point. Resolves each AcademicRecord, then runs both loaders in order |
 | `ExtEducationLoader` | UW_ACAD_HIST_PERS: one Get/Save/Cancel per AcademicRecord |
 | `TransferCreditLoader` | UW_TRNS_CRSE_MNL: one Get-or-Create/Save/Cancel per AcademicRecord |
-| `Crosswalk` | Every PESC → CS code lookup, plus course equivalency |
+| `Crosswalk` | Every PESC → CS code lookup |
 | `RecordContext` | Resolved values for one AcademicRecord, shared by both loaders |
 | `CourseItem` | One course with its term, dates, unit type and skip decision |
 | `Config` | Institution, constants, behavior switches |
@@ -61,8 +74,9 @@ Pass `""` as `&emplid` to use `Person/RecipientAssignedID` when it's a
 valid EMPLID. Otherwise run your Search/Match first and pass the result.
 
 Each AcademicRecord gets its own CI saves. A school that fails (missing
-crosswalk, save error) is logged and the rest still load. Transfer credit
-for a school only runs after its External Education saved and checked out.
+crosswalk, save error) is logged and the rest still load. In `MANUAL` mode,
+the Manual model for a school only gets created after its External
+Education saved and checked out.
 
 ## What happens to each AcademicRecord
 
@@ -87,10 +101,12 @@ for a school only runs after its External Education saved and checked out.
    component assigns EXT_COURSE_NBR and EXT_DEGREE_NBR. After the save, SQL
    confirms the `EXT_ACAD_DATA` row exists under the expected career and
    data number.
-4. **Transfer credit.** One new model: source type E, the school,
-   ACAD_PROG/ACAD_PLAN and ADMIT_TERM from the student's current
-   `ACAD_PROG` (articulation term), and one `TRNS_CRSE_DTL` per course that
-   has an equivalency. Saved unposted for an evaluator.
+4. **Course Credits - Manual (`MANUAL` mode only).** One new model: source
+   type E, the school, ACAD_PROG/ACAD_PLAN and ADMIT_TERM from the
+   student's current `ACAD_PROG` (articulation term), and one
+   `TRNS_CRSE_DTL` per course with the incoming subject, number, term,
+   title, units taken and grade. The equivalent course (`CRSE_ID`) is left
+   blank for staff to enter. Saved unposted.
 
 Course rules:
 
@@ -99,13 +115,11 @@ Course rules:
 | `CourseCreditBasis = TransferCredit` (credit from a third school) | skipped | skipped |
 | No subject or course number | skipped | skipped |
 | Grade status in `SKIP_GRADE_STATUS` or basis in `SKIP_CREDIT_BASIS` | loaded | skipped |
-| No equivalency and no `Config.GenericCrseId` | loaded | skipped (warning: left for the evaluator) |
 
-## Setup: two tables
+## Setup: the crosswalk table
 
-Create these records in App Designer and build them. To use tables you
-already have, change only the SQL in `Crosswalk.Lookup()` and
-`Crosswalk.Equivalency()`.
+Create this record in App Designer and build it. To use a different
+table, change only the SQL in `Crosswalk.Lookup()`.
 
 **UW_CGER_PESC_XW** (code crosswalk)
 
@@ -116,21 +130,6 @@ already have, change only the SQL in `Crosswalk.Lookup()` and
 | UW_CGER_CS_VAL | Char 30 | |
 
 PESC values are matched **upper-cased and trimmed**, so store them that way.
-
-**UW_PESC_EQUIV** (course equivalency, all delivered fields)
-
-| Field | Key |
-|---|---|
-| EXT_ORG_ID | Y |
-| SCHOOL_SUBJECT | Y |
-| SCHOOL_CRSE_NBR | Y |
-| CRSE_ID | |
-| CRSE_OFFER_NBR | |
-| UNT_TRNSFR (0 = derive from earned credit) | |
-
-To drive equivalencies from the delivered transfer rules instead, replace
-the SQL in `Crosswalk.Equivalency()` with a `PS_TRNSFR_FR` / `PS_TRNSFR_TO`
-join.
 
 ### Crosswalk types
 
@@ -147,7 +146,6 @@ where the table says otherwise.
 | `EXT_TERM_TYPE` | SessionType: `SEMESTER`, `QUARTER`, `TRIMESTER`, … | EXT_TERM_TYPE | blank |
 | `EXT_TERM` | `<SESSIONTYPE>:<MM>` then `*:<MM>`, e.g. `SEMESTER:08`, `*:01` | EXT_TERM | blank |
 | `UNT_TYPE` | CourseCreditUnits / GPA CreditUnit: `SEMESTER`, `QUARTER`, … | UNT_TYPE | blank |
-| `UNIT_FACTOR` | CourseCreditUnits, e.g. `QUARTER` | multiplier, e.g. `0.6667` | 1 |
 | `EXT_SUMM_TYPE` | AcademicSummaryType: `ALL`, `SENDERONLY`, … | EXT_SUMM_TYPE | **summary skipped** |
 | `GPA_TYPE` | GPARangeMaximum as text: `4`, `5`, `100` | GPA_TYPE | blank |
 | `EXT_CRSE_TYPE` | CourseCreditBasis: `REGULAR`, `ADVANCEDPLACEMENT`, … | EXT_CRSE_TYPE | blank |
@@ -161,6 +159,7 @@ where the table says otherwise.
 | `REPEAT_CODE` | CourseRepeatCode | REPEAT_CODE | blank |
 | `SKIP_GRADE_STATUS` | CourseAcademicGradeStatusCode, e.g. `WITHDRAWN` | `Y` | sent to transfer credit |
 | `SKIP_CREDIT_BASIS` | CourseCreditBasis | `Y` | sent to transfer credit |
+| `TC_MODE` | INSTITUTION, e.g. `UWRVF` | `MANUAL` or `EXTED` | `EXTED` |
 
 Sample seed rows (replace the right-hand values with your XLATs):
 
@@ -173,12 +172,12 @@ INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_TERM',       'SEMESTER:08',  'FALL')
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_TERM',       'SEMESTER:01',  'SPR');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_TERM',       '*:06',         'SUM');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('UNT_TYPE',       'SEMESTER',     'SEM');
-INSERT INTO PS_UW_CGER_PESC_XW VALUES ('UNIT_FACTOR',    'QUARTER',      '0.6667');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('EXT_SUMM_TYPE',  'ALL',          'OVRL');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('GPA_TYPE',       '4',            'GPA4');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('DEGREE',         'BACHELORS:BS', 'BS');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('DEGREE_STATUS',  'TRUE',         'C');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('SKIP_GRADE_STATUS','WITHDRAWN',  'Y');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('TC_MODE',        'UWRVF',        'MANUAL');
 ```
 
 ## CI gaps (fix before the first run)
@@ -203,6 +202,11 @@ The generated templates show some key fields that your CIs don't expose.
    external courses by subject, catalog number, term and year
    (`SCHOOL_SUBJECT_0`, `SCHOOL_CRSE_NBR`, `TERM_YEAR`, `EXT_TERM`), not
    by EXT_COURSE_NBR.
+4. **Can Course Credits - Manual save a row with no equivalent course?**
+   `MANUAL` mode saves detail rows with `CRSE_ID` blank. Check this online
+   first: add a row to a test model, leave the course empty and save. If
+   the component requires a course, set `Config.GenericCrseId` (and
+   `GenericCrseOfferNbr`) to a placeholder course for staff to replace.
 
 ## Bugs found in UW_PESC (fix these too)
 
@@ -230,17 +234,18 @@ already compile, ignore it.
 
 1. Fix the CI gaps and the three schema typos that throw.
 2. Seed at least `EXT_ORG`, `EXT_CAREER`, `EXT_TERM_TYPE`, `EXT_TERM`,
-   `UNT_TYPE`, `EXT_SUMM_TYPE`, `DEGREE` for one test school, plus one or
-   two `UW_PESC_EQUIV` rows.
+   `UNT_TYPE`, `EXT_SUMM_TYPE`, `DEGREE` for one test school, plus a
+   `TC_MODE` row for each `MANUAL` institution.
 3. Set `Config.DataSource` / `DataMedium` / `TranscriptStatus` /
    grading scheme and basis to real XLAT values, or leave them blank.
 4. Run one transcript for a test student. Then check:
    - Education page: one new data row, courses on the right term, degree.
    - `LoadResult`: no errors. Read the PSMSG lines, because component
      warnings show up there.
-   - Course Credits - Manual: one unposted model with the right
-     articulation term, and incoming courses that match the external
-     courses.
+   - `MANUAL` institution only: Course Credits - Manual has one unposted
+     model with the right articulation term, and incoming courses that
+     match the external courses, with no equivalent courses.
+   - `EXTED` institution: no Manual model was created.
 5. Run the same file again. It should be skipped as a duplicate.
 
 ## Things to decide later
@@ -248,8 +253,8 @@ already compile, ignore it.
 - **InteractiveMode** is off (`Config.InteractiveMode`), so field edits
   and FieldChange run at Save. If a FieldChange overwrites a value this
   package set, try turning it on.
-- **Posting** isn't done here, because `MODEL_STATUS` and the post button
-  aren't in the CI.
+- **Posting** stays with each school's current process. The package never
+  posts, and `MODEL_STATUS` and the post button aren't in the CI anyway.
 - **`CourseOverrideSchool`** courses are skipped along with every
   `TransferCredit` course. Loading them under the third school's
   EXT_ORG_ID would need one extra org row per override school.

@@ -62,6 +62,7 @@ private
    method WidenDates(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &begin As date, &end As date);
    method IsDuplicate(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
    method NextDataNbr(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns number;
+   method ResolveTransferMode() Returns string;
    method ParseDate(&text As string) Returns date;
    method Month2(&d As date) Returns string;
 end-class;
@@ -84,6 +85,7 @@ method Load
    Local string &id = &emplid;
    Local string &found = "";
    Local boolean &trnsSaved;
+   Local string &mode;
    Local integer &i;
 
    &res = create UW_PESC:Utilities:UW_PESC_LOAD:LoadResult();
@@ -125,6 +127,9 @@ method Load
       Return &res;
    End-If;
 
+   &mode = %This.ResolveTransferMode();
+   &res.Info(0, "Institution " | %This.Config.Institution | " transfer credit mode: " | &mode | ".");
+
    For &i = 1 To &student.AcademicRecord.Len
       &ctx = %This.BuildContext(&i, &student.AcademicRecord [&i], &transcript, &id);
 
@@ -138,7 +143,7 @@ method Load
 
             If &ctx.ExtEdSaved Then
                &res.RecordsLoaded = &res.RecordsLoaded + 1;
-               If %This.Config.LoadTransferCredit Then
+               If &mode = "MANUAL" Then
                   /* outcome is already logged in &res */
                   &trnsSaved = &trns.Load(&ctx);
                End-If;
@@ -534,6 +539,21 @@ method NextDataNbr
 
    SQLExec("SELECT MAX(EXT_DATA_NBR) FROM PS_EXT_ACAD_DATA WHERE EMPLID = :1 AND EXT_ORG_ID = :2 AND EXT_CAREER = :3", &ctx.Emplid, &ctx.ExtOrgId, &ctx.ExtCareer, &maxNbr);
    Return &maxNbr + 1;
+end-method;
+
+method ResolveTransferMode
+   /+ Returns String +/
+   /* Config.TransferCreditMode wins; otherwise crosswalk TC_MODE keyed by
+      institution, so each school's setting lives in the table. */
+   Local string &mode = Upper(%This.Config.TransferCreditMode);
+
+   If None(&mode) Then
+      &mode = Upper(%This.Crosswalk.Lookup("TC_MODE", %This.Config.Institution));
+   End-If;
+   If &mode <> "MANUAL" Then
+      &mode = "EXTED";
+   End-If;
+   Return &mode;
 end-method;
 
 method ParseDate

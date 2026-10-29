@@ -2,14 +2,15 @@
  * UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk
  *
  * Translates PESC codes into Campus Solutions values. All lookups go
- * through two placeholder tables (definitions in README.md):
+ * through one table (definition in README.md):
  *
  *    PS_UW_CGER_PESC_XW   UW_CGER_XWALK_TYPE + UW_CGER_PESC_VAL  -> UW_CGER_CS_VAL
- *    PS_UW_PESC_EQUIV   EXT_ORG_ID + SCHOOL_SUBJECT + SCHOOL_CRSE_NBR
- *                          -> CRSE_ID, CRSE_OFFER_NBR, UNT_TRNSFR
  *
- * To use tables you already have, change only the SQL in Lookup() and
- * Equivalency(). PESC values are matched upper-cased, so store
+ * Course equivalencies are not looked up here. Schools either apply their
+ * PeopleSoft rules when they post, or enter equivalencies by hand.
+ *
+ * To use a different table, change only the SQL in Lookup(). PESC values
+ * are matched upper-cased, so store
  * UW_CGER_PESC_VAL in upper case. Results are cached for the life of the
  * instance.
  *
@@ -26,7 +27,6 @@ class Crosswalk
    method LookupFirst(&type As string, &pescValues As array of string) Returns string;
    method ExtOrgId(&school As UW_PESC:SchoolType) Returns string;
    method ExtOrgIdForOrg(&org As UW_PESC:OrganizationType) Returns string;
-   method Equivalency(&extOrgId As string, &subject As string, &crseNbr As string) Returns array of string;
 
 private
    instance array of string &cacheKeys;
@@ -119,30 +119,6 @@ method ExtOrgIdForOrg
       End-If;
    End-If;
    Return %This.FromCodes(&org.ATP, &org.CEEBACT, &org.FICE, &org.ACT, &org.IPEDS, &org.OPEID, &localCode, &name);
-end-method;
-
-method Equivalency
-   /+ &extOrgId as String, +/
-   /+ &subject as String, +/
-   /+ &crseNbr as String +/
-   /+ Returns Array of String +/
-   /* Returns [CRSE_ID, CRSE_OFFER_NBR, UNT_TRNSFR] or an empty array.
-      To use the delivered transfer rules instead, replace this SQL with a
-      join of PS_TRNSFR_FR to PS_TRNSFR_TO on your institution, source org
-      and effective date. */
-   Local string &crseId = "";
-   Local number &offerNbr = 0;
-   Local number &units = 0;
-   Local array of string &match = CreateArrayRept("", 0);
-
-   SQLExec("SELECT CRSE_ID, CRSE_OFFER_NBR, UNT_TRNSFR FROM PS_UW_PESC_EQUIV WHERE EXT_ORG_ID = :1 AND SCHOOL_SUBJECT = :2 AND SCHOOL_CRSE_NBR = :3", &extOrgId, Upper(&subject), Upper(&crseNbr), &crseId, &offerNbr, &units);
-
-   If All(&crseId) Then
-      &match.Push(RTrim(&crseId));
-      &match.Push(String(&offerNbr));
-      &match.Push(String(&units));
-   End-If;
-   Return &match;
 end-method;
 
 method FromCodes

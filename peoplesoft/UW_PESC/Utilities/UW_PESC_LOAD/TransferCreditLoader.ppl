@@ -1,10 +1,14 @@
 /* ===========================================================================
  * UW_PESC:Utilities:UW_PESC_LOAD:TransferCreditLoader
  *
- * Creates one unposted manual transfer credit model per PESC AcademicRecord
- * through the UW_TRNS_CRSE_MNL component interface. Run it only after
- * ExtEducationLoader has saved the same record. The incoming course
- * fields prompt against the student's external courses.
+ * For MANUAL-mode schools: creates one unposted Course Credits - Manual
+ * model per PESC AcademicRecord through UW_TRNS_CRSE_MNL, holding the
+ * incoming (transcript) courses only. Staff add the equivalent courses
+ * from their equivalency source and post, as they do today. Nothing here
+ * works out equivalencies.
+ *
+ * Run it only after ExtEducationLoader has saved the same record. The
+ * incoming course fields prompt against the student's external courses.
  *
  * CI shape (from the generated template):
  *    root              EMPLID, ACAD_CAREER, INSTITUTION
@@ -45,7 +49,7 @@ private
    method ReadProgram(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
    method CountEligible(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns integer;
    method NewModelRow(&schColl As ApiObject) Returns ApiObject;
-   method FillDetail(&row As ApiObject, &item As UW_PESC:Utilities:UW_PESC_LOAD:CourseItem, &grp As integer, &equiv As array of string, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillDetail(&row As ApiObject, &item As UW_PESC:Utilities:UW_PESC_LOAD:CourseItem, &grp As integer);
 end-class;
 
 method TransferCreditLoader
@@ -64,14 +68,13 @@ method Load
    Local ApiObject &ci, &sch, &termColl, &term, &dtlColl, &dtl;
    Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &item;
    Local UW_PESC:CourseType &c;
-   Local array of string &equiv;
    Local string &artTerm;
    Local integer &i, &grp;
    Local integer &idx = &ctx.RecordIndex;
    Local number &modelNbr = 0;
 
    If %This.CountEligible(&ctx) = 0 Then
-      &res.Info(&idx, "No courses eligible for transfer credit; no model created.");
+      &res.Info(&idx, "No courses to send to Course Credits - Manual; no model created.");
       Return True;
    End-If;
 
@@ -150,35 +153,17 @@ method Load
             If &chk.IsSet(&item.NoTransferReason) Then
                &res.Info(&idx, "Course " | &c.CourseSubjectAbbreviation | " " | &c.CourseNumber | " not sent to transfer credit: " | &item.NoTransferReason);
             Else
-               &equiv = &xw.Equivalency(&ctx.ExtOrgId, &c.CourseSubjectAbbreviation, &c.CourseNumber);
-               If &equiv.Len = 0 And
-                     &chk.IsSet(&cfg.GenericCrseId) Then
-                  &equiv.Push(&cfg.GenericCrseId);
-                  &equiv.Push(String(&cfg.GenericCrseOfferNbr));
-                  &equiv.Push("0");
-               End-If;
-
-               If &equiv.Len = 0 Then
-                  &res.Warn(&idx, "No equivalency for " | &ctx.ExtOrgId | " " | &c.CourseSubjectAbbreviation | " " | &c.CourseNumber | "; left for the evaluator.");
+               &grp = &grp + 1;
+               If &grp = 1 And
+                     &dtlColl.Count > 0 Then
+                  &dtl = &dtlColl.Item(1);
                Else
-                  &grp = &grp + 1;
-                  If &grp = 1 And
-                        &dtlColl.Count > 0 Then
-                     &dtl = &dtlColl.Item(1);
-                  Else
-                     &dtl = &dtlColl.InsertItem(&dtlColl.Count);
-                  End-If;
-                  %This.FillDetail(&dtl, &item, &grp, &equiv, &ctx);
+                  &dtl = &dtlColl.InsertItem(&dtlColl.Count);
                End-If;
+               %This.FillDetail(&dtl, &item, &grp);
             End-If;
          End-If;
       End-For;
-
-      If &grp = 0 Then
-         &res.Info(&idx, "No course had an equivalency; no model created.");
-         &ci.Cancel();
-         Return True;
-      End-If;
 
       If Not &ci.Save() Then
          &res.AddPSMessages(&idx, "UW_TRNS_CRSE_MNL.Save");
@@ -264,11 +249,8 @@ end-method;
 method FillDetail
    /+ &row as ApiObject, +/
    /+ &item as UW_PESC:Utilities:UW_PESC_LOAD:CourseItem, +/
-   /+ &grp as Integer, +/
-   /+ &equiv as Array of String, +/
-   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ &grp as Integer +/
    Local UW_PESC:CourseType &c = &item.Course;
-   Local number &units, &factor;
    Local string &v;
 
    &row.TRNSFR_EQVLNCY_GRP = &grp;
@@ -290,31 +272,17 @@ method FillDetail
       &row.CRSE_GRADE_INPUT_0 = Upper(&c.CourseAcademicGrade);
    End-If;
 
-   /* equivalent course */
-   &row.CRSE_ID = &equiv [1];
-   &row.CRSE_OFFER_NBR = Value(&equiv [2]);
+   /* The equivalent course is left for staff to enter. A placeholder is
+      set only if the component insists on one (Config.GenericCrseId). */
+   If &chk.IsSet(&cfg.GenericCrseId) Then
+      &row.CRSE_ID = &cfg.GenericCrseId;
+      &row.CRSE_OFFER_NBR = &cfg.GenericCrseOfferNbr;
+   End-If;
    If &chk.IsSet(&cfg.TrnsGradingScheme) Then
       &row.GRADING_SCHEME_0 = &cfg.TrnsGradingScheme;
    End-If;
    If &chk.IsSet(&cfg.TrnsGradingBasis) Then
       &row.GRADING_BASIS_0 = &cfg.TrnsGradingBasis;
-   End-If;
-
-   /* units: the equivalency's units win. Otherwise use earned credit
-      converted with UNIT_FACTOR (e.g. quarter -> semester). With neither,
-      the component defaults the units from the course. */
-   &units = Value(&equiv [3]);
-   If &units = 0 And
-         &c.CourseCreditEarned > 0 Then
-      &v = &xw.Lookup("UNIT_FACTOR", &c.CourseCreditUnits);
-      &factor = 1;
-      If All(&v) Then
-         &factor = Value(&v);
-      End-If;
-      &units = Round(&c.CourseCreditEarned * &factor, 2);
-   End-If;
-   If &units > 0 Then
-      &row.UNT_TRNSFR_1 = &units;
    End-If;
 
    &v = &xw.Lookup("REPEAT_CODE", &c.CourseRepeatCode);

@@ -35,9 +35,9 @@ class Config
    property string IncludeInGpa;
    property string GenericCrseId;
    property number GenericCrseOfferNbr;
+   property string TransferCreditMode;
 
    /* ---- behavior ---- */
-   property boolean LoadTransferCredit;
    property boolean SkipDuplicateTranscripts;
    property boolean InteractiveMode;
    property number DescrLength;
@@ -60,11 +60,18 @@ method Config
    %This.TrnsGradingScheme = "";
    %This.TrnsGradingBasis = "";
    %This.IncludeInGpa = "";
-   /* blank = no generic course: rows without an equivalency are skipped */
+   /* Only needed if Course Credits - Manual won't save a row without an
+      equivalent course: set a placeholder course for evaluators to replace.
+      Blank = rows are saved with CRSE_ID empty. */
    %This.GenericCrseId = "";
    %This.GenericCrseOfferNbr = 1;
 
-   %This.LoadTransferCredit = True;
+   /* EXTED  = External Education only (school posts with its PeopleSoft
+               equivalency rules, as today)
+      MANUAL = External Education plus a Course Credits - Manual model
+               holding the incoming courses, no equivalencies
+      blank  = look up crosswalk TC_MODE for Institution; EXTED if none */
+   %This.TransferCreditMode = "";
    %This.SkipDuplicateTranscripts = True;
    %This.InteractiveMode = False;
    %This.DescrLength = 30;
