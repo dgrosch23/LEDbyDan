@@ -222,6 +222,30 @@ INSERT INTO PS_UW_CGER_PESC_XW VALUES ('SKIP_GRADE_STATUS','WITHDRAWN',  'Y');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('MODULES',        'UWRVF',        'EXTDATA,EXTDEG,CCM');
 ```
 
+## Finding valid values
+
+"Invalid value" on a field means the value the loader set isn't in that
+field's prompt table. These queries list what is valid (add your own
+SETID/effective-date filters):
+
+```sql
+-- EXT_CRSE_TYPE (Config.DefaultExtCrseType, crosswalk EXT_CRSE_TYPE)
+SELECT FIELDVALUE, XLATLONGNAME FROM PSXLATITEM WHERE FIELDNAME = 'EXT_CRSE_TYPE' AND EFF_STATUS = 'A';
+
+-- grading schemes and bases (Config.ExtGradingScheme / ExtGradingBasis, crosswalk GRADING_BASIS)
+SELECT DISTINCT SETID, GRADING_SCHEME, GRADING_BASIS FROM PS_GRADE_TBL ORDER BY 1, 2, 3;
+
+-- grades valid for one scheme + basis (crosswalk CRSE_GRADE results)
+SELECT CRSE_GRADE_INPUT, DESCR FROM PS_GRADE_TBL
+ WHERE SETID = :setid AND GRADING_SCHEME = :scheme AND GRADING_BASIS = :basis
+   AND EFFDT = (SELECT MAX(EFFDT) FROM PS_GRADE_TBL G2 WHERE G2.SETID = PS_GRADE_TBL.SETID
+                AND G2.GRADING_SCHEME = PS_GRADE_TBL.GRADING_SCHEME AND G2.EFFDT <= SYSDATE);
+```
+
+The quickest check is online. Key one external course by hand on the
+Education page, then copy the course type, grading scheme, basis and
+grade staff choose into Config and the crosswalk.
+
 ## CI gaps (fix before the first run)
 
 The generated templates show some key fields that your CIs don't expose.
