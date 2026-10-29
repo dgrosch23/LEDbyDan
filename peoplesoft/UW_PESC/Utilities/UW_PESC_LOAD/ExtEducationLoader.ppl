@@ -260,7 +260,10 @@ method FillAcadData
       /* not exposed: VerifySaved() checks the result after the save */
    end-try;
 
-   &data.TRANSCRIPT_FLAG = "Y";
+   /* TRANSCRIPT_FLAG is a translate field, not Y/N; blank = component default */
+   If &chk.IsSet(&cfg.TranscriptFlag) Then
+      &data.TRANSCRIPT_FLAG = &cfg.TranscriptFlag;
+   End-If;
    &data.TRANSCRIPT_DT = &ctx.TranscriptDt;
    &data.RECEIVED_DT = %Date;
    If &chk.IsSet(&ctx.TranscriptType) Then

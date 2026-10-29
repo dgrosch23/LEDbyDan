@@ -25,6 +25,7 @@ class Config
    property string DataSource;
    property string DataMedium;
    property string TranscriptStatus;
+   property string TranscriptFlag;
    property string ExtGradingScheme;
    property string ExtGradingBasis;
    property string DefaultExtCrseType;
@@ -53,6 +54,8 @@ method Config
    %This.DataSource = "";
    %This.DataMedium = "";
    %This.TranscriptStatus = "";
+   /* EXT_ACAD_DATA.TRANSCRIPT_FLAG translate value (UWRVF: "D") */
+   %This.TranscriptFlag = "";
    %This.ExtGradingScheme = "";
    %This.ExtGradingBasis = "";
    /* EXT_COURSE.EXT_CRSE_TYPE is required: used when crosswalk

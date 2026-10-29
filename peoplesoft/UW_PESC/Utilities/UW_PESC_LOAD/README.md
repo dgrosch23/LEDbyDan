@@ -308,8 +308,8 @@ already compile, ignore it.
 2. Seed at least `EXT_ORG`, `EXT_CAREER`, `EXT_TERM_TYPE`, `EXT_TERM`,
    `UNT_TYPE`, `EXT_SUMM_TYPE`, `DEGREE` for one test school, plus a
    `MODULES` row for each institution that doesn't use the default.
-3. Set `Config.DataSource` / `DataMedium` / `TranscriptStatus` to real XLAT
-   values, or leave them blank. Set **`Config.ExtGradingScheme`,
+3. Set `Config.DataSource` / `DataMedium` / `TranscriptStatus` /
+   `TranscriptFlag` to real XLAT values, or leave them blank. Set **`Config.ExtGradingScheme`,
    `ExtGradingBasis` and `DefaultExtCrseType`** to what staff choose when
    they key an external course online. Every grade has to exist in that
    scheme and basis, or EXT_COURSE fails with "Invalid value" on
