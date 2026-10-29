@@ -191,6 +191,10 @@ method ReadProgram
    /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
    /* The student's current program (latest effective row on the newest
       career number) supplies ACAD_PROG, ADMIT_TERM and the primary plan. */
+   /* SQLExec outputs must be local variables, not instance variables */
+   Local string &prog = "";
+   Local string &plan = "";
+   Local string &term = "";
    Local number &carNbr = 0;
    Local date &effdt;
    Local number &effseq = 0;
@@ -199,17 +203,17 @@ method ReadProgram
    &acadPlan = "";
    &admitTerm = "";
 
-   SQLExec("SELECT A.ACAD_PROG, A.ADMIT_TERM, A.STDNT_CAR_NBR, %DateOut(A.EFFDT), A.EFFSEQ FROM PS_ACAD_PROG A WHERE A.EMPLID = :1 AND A.ACAD_CAREER = :2 AND A.INSTITUTION = :3 AND A.EFFDT = (SELECT MAX(B.EFFDT) FROM PS_ACAD_PROG B WHERE B.EMPLID = A.EMPLID AND B.ACAD_CAREER = A.ACAD_CAREER AND B.STDNT_CAR_NBR = A.STDNT_CAR_NBR AND B.EFFDT <= %CurrentDateIn) AND A.EFFSEQ = (SELECT MAX(C.EFFSEQ) FROM PS_ACAD_PROG C WHERE C.EMPLID = A.EMPLID AND C.ACAD_CAREER = A.ACAD_CAREER AND C.STDNT_CAR_NBR = A.STDNT_CAR_NBR AND C.EFFDT = A.EFFDT) ORDER BY A.STDNT_CAR_NBR DESC", &ctx.Emplid, &ctx.AcadCareer, &cfg.Institution, &acadProg, &admitTerm, &carNbr, &effdt, &effseq);
+   SQLExec("SELECT A.ACAD_PROG, A.ADMIT_TERM, A.STDNT_CAR_NBR, %DateOut(A.EFFDT), A.EFFSEQ FROM PS_ACAD_PROG A WHERE A.EMPLID = :1 AND A.ACAD_CAREER = :2 AND A.INSTITUTION = :3 AND A.EFFDT = (SELECT MAX(B.EFFDT) FROM PS_ACAD_PROG B WHERE B.EMPLID = A.EMPLID AND B.ACAD_CAREER = A.ACAD_CAREER AND B.STDNT_CAR_NBR = A.STDNT_CAR_NBR AND B.EFFDT <= %CurrentDateIn) AND A.EFFSEQ = (SELECT MAX(C.EFFSEQ) FROM PS_ACAD_PROG C WHERE C.EMPLID = A.EMPLID AND C.ACAD_CAREER = A.ACAD_CAREER AND C.STDNT_CAR_NBR = A.STDNT_CAR_NBR AND C.EFFDT = A.EFFDT) ORDER BY A.STDNT_CAR_NBR DESC", &ctx.Emplid, &ctx.AcadCareer, &cfg.Institution, &prog, &term, &carNbr, &effdt, &effseq);
 
-   If &chk.IsBlank(&acadProg) Then
+   If None(&prog) Then
       Return;
    End-If;
 
-   SQLExec("SELECT ACAD_PLAN FROM PS_ACAD_PLAN WHERE EMPLID = :1 AND ACAD_CAREER = :2 AND STDNT_CAR_NBR = :3 AND EFFDT = %DateIn(:4) AND EFFSEQ = :5 ORDER BY PLAN_SEQUENCE", &ctx.Emplid, &ctx.AcadCareer, &carNbr, &effdt, &effseq, &acadPlan);
+   SQLExec("SELECT ACAD_PLAN FROM PS_ACAD_PLAN WHERE EMPLID = :1 AND ACAD_CAREER = :2 AND STDNT_CAR_NBR = :3 AND EFFDT = %DateIn(:4) AND EFFSEQ = :5 ORDER BY PLAN_SEQUENCE", &ctx.Emplid, &ctx.AcadCareer, &carNbr, &effdt, &effseq, &plan);
 
-   &acadProg = RTrim(&acadProg);
-   &acadPlan = RTrim(&acadPlan);
-   &admitTerm = RTrim(&admitTerm);
+   &acadProg = RTrim(&prog);
+   &acadPlan = RTrim(&plan);
+   &admitTerm = RTrim(&term);
 end-method;
 
 method CountEligible
