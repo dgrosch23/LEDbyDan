@@ -253,9 +253,10 @@ The generated templates show some key fields that your CIs don't expose.
 1. **UW_TRNS_CRSE_MNL → `TRNS_CRSE_TERM` has no properties at all.**
    `ARTICULATION_TERM` is that level's key, and a model can't be created
    without it. Open the CI, drag `ARTICULATION_TERM` from the component
-   (left pane) onto the `TRNS_CRSE_TERM` collection, and save. Until you
-   do, every transfer credit load fails with a message naming the
-   property. Add `MODEL_STATUS` too if you later want to post from code.
+   (left pane) onto the `TRNS_CRSE_TERM` collection, then **clear its
+   Read Only flag** in the CI property, because it comes in read-only even
+   though the page field is editable. Save. Until you do, every CCM load
+   fails with "Property is read-only" or a message naming the property. Add `MODEL_STATUS` too if you later want to post from code.
 2. **UW_ACAD_HIST_PERS → `EXT_ACAD_DATA` must expose `EXT_CAREER` and
    `EXT_DATA_NBR`.** The generated CI leaves out these key fields. Add both
    to the collection (done in UWRVF's CI). The loader sets them on the new
@@ -268,11 +269,9 @@ The generated templates show some key fields that your CIs don't expose.
    external courses by subject, catalog number, term and year
    (`SCHOOL_SUBJECT_0`, `SCHOOL_CRSE_NBR`, `TERM_YEAR`, `EXT_TERM`), not
    by EXT_COURSE_NBR.
-4. **Can Course Credits - Manual save a row with no equivalent course?**
-   `CCM` saves detail rows with `CRSE_ID` blank. Check this online
-   first: add a row to a test model, leave the course empty and save. If
-   the component requires a course, set `Config.GenericCrseId` (and
-   `GenericCrseOfferNbr`) to a placeholder course for staff to replace.
+4. **Rows with no equivalent course: confirmed.** Course Credits - Manual
+   saves detail rows with `CRSE_ID` blank (tested at UWRVF), so
+   `Config.GenericCrseId` can stay blank.
 5. **Does CCM need the courses in External Education?** The incoming course
    fields on Course Credits - Manual prompt against the student's external
    courses (`EXT_CRS_TRNS_VW` in the CI). For a school without `EXTCRSE`,
