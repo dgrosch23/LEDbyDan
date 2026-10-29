@@ -35,7 +35,7 @@ class Config
    property string IncludeInGpa;
    property string GenericCrseId;
    property number GenericCrseOfferNbr;
-   property string TransferCreditMode;
+   property string ModuleList;
 
    /* ---- behavior ---- */
    property boolean SkipDuplicateTranscripts;
@@ -66,12 +66,10 @@ method Config
    %This.GenericCrseId = "";
    %This.GenericCrseOfferNbr = 1;
 
-   /* EXTED  = External Education only (school posts with its PeopleSoft
-               equivalency rules, as today)
-      MANUAL = External Education plus a Course Credits - Manual model
-               holding the incoming courses, no equivalencies
-      blank  = look up crosswalk TC_MODE for Institution; EXTED if none */
-   %This.TransferCreditMode = "";
+   /* Which parts to load (see Modules.ppl), e.g. "EXTDATA,EXTDEG,CCM".
+      Blank = look up crosswalk MODULES for Institution, and if there's no
+      row, load all of External Education: "EXTDATA,EXTDEG,EXTCRSE". */
+   %This.ModuleList = "";
    %This.SkipDuplicateTranscripts = True;
    %This.InteractiveMode = False;
    %This.DescrLength = 30;

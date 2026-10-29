@@ -32,6 +32,7 @@ import UW_PESC:AcademicSessionDetailType;
 import UW_PESC:AcademicAwardType;
 import UW_PESC:CourseType;
 import UW_PESC:Utilities:UW_PESC_LOAD:Config;
+import UW_PESC:Utilities:UW_PESC_LOAD:Modules;
 import UW_PESC:Utilities:UW_PESC_LOAD:Check;
 import UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk;
 import UW_PESC:Utilities:UW_PESC_LOAD:LoadResult;
@@ -62,7 +63,9 @@ private
    method WidenDates(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &begin As date, &end As date);
    method IsDuplicate(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
    method NextDataNbr(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns number;
-   method ResolveTransferMode() Returns string;
+   method ResolveModules() Returns UW_PESC:Utilities:UW_PESC_LOAD:Modules;
+   method IsDuplicateModel(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
+   method LogDryRun(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
    method ParseDate(&text As string) Returns date;
    method Month2(&d As date) Returns string;
 end-class;
@@ -84,8 +87,8 @@ method Load
    Local UW_PESC:Utilities:UW_PESC_LOAD:TransferCreditLoader &trns;
    Local string &id = &emplid;
    Local string &found = "";
-   Local boolean &trnsSaved;
-   Local string &mode;
+   Local boolean &trnsSaved, &dup;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:Modules &mods;
    Local integer &i;
 
    &res = create UW_PESC:Utilities:UW_PESC_LOAD:LoadResult();
@@ -127,25 +130,47 @@ method Load
       Return &res;
    End-If;
 
-   &mode = %This.ResolveTransferMode();
-   &res.Info(0, "Institution " | %This.Config.Institution | " transfer credit mode: " | &mode | ".");
+   &mods = %This.ResolveModules();
+   &res.Info(0, "Institution " | %This.Config.Institution | " modules: " | &mods.ToText() | ".");
 
    For &i = 1 To &student.AcademicRecord.Len
       &ctx = %This.BuildContext(&i, &student.AcademicRecord [&i], &transcript, &id);
 
       If Not &ctx.Skip Then
-         If %This.Config.SkipDuplicateTranscripts And
-               %This.IsDuplicate(&ctx) Then
-            &res.Warn(&i, "A transcript dated " | &ctx.TranscriptDt | " is already on file for " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | "; record skipped.");
+         If Not &mods.AnySelected() Then
+            %This.LogDryRun(&ctx);
          Else
-            &ctx.ExtDataNbr = %This.NextDataNbr(&ctx);
-            &ctx.ExtEdSaved = &extEd.Load(&ctx);
+            /* duplicate check: by transcript date when External Education
+               is loaded, otherwise by an existing Manual model */
+            &dup = False;
+            If %This.Config.SkipDuplicateTranscripts Then
+               If &mods.ExtData Then
+                  If %This.IsDuplicate(&ctx) Then
+                     &dup = True;
+                     &res.Warn(&i, "A transcript dated " | &ctx.TranscriptDt | " is already on file for " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | "; record skipped.");
+                  End-If;
+               Else
+                  If %This.IsDuplicateModel(&ctx) Then
+                     &dup = True;
+                     &res.Warn(&i, "A Course Credits - Manual model already exists for " | &ctx.ExtOrgId | " / " | &ctx.AcadCareer | "; record skipped.");
+                  End-If;
+               End-If;
+            End-If;
 
-            If &ctx.ExtEdSaved Then
-               &res.RecordsLoaded = &res.RecordsLoaded + 1;
-               If &mode = "MANUAL" Then
-                  /* outcome is already logged in &res */
-                  &trnsSaved = &trns.Load(&ctx);
+            If Not &dup Then
+               &ctx.ExtEdSaved = True;
+               If &mods.ExtData Then
+                  &ctx.ExtDataNbr = %This.NextDataNbr(&ctx);
+                  &ctx.ExtEdSaved = &extEd.Load(&ctx, &mods);
+               End-If;
+
+               /* CCM runs only if External Education (when selected) saved */
+               If &ctx.ExtEdSaved Then
+                  &res.RecordsLoaded = &res.RecordsLoaded + 1;
+                  If &mods.ManualCredit Then
+                     /* outcome is already logged in &res */
+                     &trnsSaved = &trns.Load(&ctx);
+                  End-If;
                End-If;
             End-If;
          End-If;
@@ -541,19 +566,48 @@ method NextDataNbr
    Return &maxNbr + 1;
 end-method;
 
-method ResolveTransferMode
-   /+ Returns String +/
-   /* Config.TransferCreditMode wins; otherwise crosswalk TC_MODE keyed by
-      institution, so each school's setting lives in the table. */
-   Local string &mode = Upper(%This.Config.TransferCreditMode);
+method ResolveModules
+   /+ Returns UW_PESC:Utilities:UW_PESC_LOAD:Modules +/
+   /* Config.ModuleList wins. Otherwise crosswalk MODULES keyed by institution,
+      so each school's choice lives in the table. With neither, load all of
+      External Education. */
+   Local UW_PESC:Utilities:UW_PESC_LOAD:Modules &mods;
+   Local string &list = %This.Config.ModuleList;
+   Local string &source = "Config.ModuleList";
+   Local string &unknown;
 
-   If None(&mode) Then
-      &mode = Upper(%This.Crosswalk.Lookup("TC_MODE", %This.Config.Institution));
+   If None(&list) Then
+      &list = %This.Crosswalk.Lookup("MODULES", %This.Config.Institution);
+      &source = "crosswalk MODULES";
    End-If;
-   If &mode <> "MANUAL" Then
-      &mode = "EXTED";
+   If None(&list) Then
+      &list = "EXTDATA,EXTDEG,EXTCRSE";
+      &source = "default";
    End-If;
-   Return &mode;
+
+   &mods = create UW_PESC:Utilities:UW_PESC_LOAD:Modules(&list);
+   &unknown = &mods.Unknown;
+   If All(&unknown) Then
+      &res.Warn(0, "Unknown module name(s) in " | &source | " '" | &list | "' ignored:" | &unknown | ".");
+   End-If;
+   Return &mods;
+end-method;
+
+method IsDuplicateModel
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Boolean +/
+   /* Used when only CCM is loaded, so there's no transcript date on file to
+      compare. Any existing model for this school counts as a duplicate. */
+   Local string &found = "";
+
+   SQLExec("SELECT 'Y' FROM PS_TRNS_CRSE_SCH WHERE EMPLID = :1 AND ACAD_CAREER = :2 AND INSTITUTION = :3 AND EXT_ORG_ID = :4", &ctx.Emplid, &ctx.AcadCareer, %This.Config.Institution, &ctx.ExtOrgId, &found);
+   Return (&found = "Y");
+end-method;
+
+method LogDryRun
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /* No modules selected: report what would load, save nothing. */
+   &res.Info(&ctx.RecordIndex, "Dry run: " | &ctx.ExtOrgId | " (" | &ctx.SchoolName | "), career " | &ctx.ExtCareer | " -> " | &ctx.AcadCareer | ", " | &ctx.Courses.Len | " course(s), " | &ctx.Awards.Len | " award(s), transcript date " | &ctx.TranscriptDt | ". Nothing saved.");
 end-method;
 
 method ParseDate

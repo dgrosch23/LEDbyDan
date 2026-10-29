@@ -25,6 +25,7 @@ import UW_PESC:AcademicHonorsType;
 import UW_PESC:AcademicProgramType;
 import UW_PESC:CourseType;
 import UW_PESC:Utilities:UW_PESC_LOAD:Config;
+import UW_PESC:Utilities:UW_PESC_LOAD:Modules;
 import UW_PESC:Utilities:UW_PESC_LOAD:Check;
 import UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk;
 import UW_PESC:Utilities:UW_PESC_LOAD:LoadResult;
@@ -33,7 +34,7 @@ import UW_PESC:Utilities:UW_PESC_LOAD:CourseItem;
 
 class ExtEducationLoader
    method ExtEducationLoader(&config As UW_PESC:Utilities:UW_PESC_LOAD:Config, &xwalk As UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk, &result As UW_PESC:Utilities:UW_PESC_LOAD:LoadResult);
-   method Load(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
+   method Load(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &mods As UW_PESC:Utilities:UW_PESC_LOAD:Modules) Returns boolean;
 
 private
    instance UW_PESC:Utilities:UW_PESC_LOAD:Config &cfg;
@@ -66,7 +67,8 @@ method ExtEducationLoader
 end-method;
 
 method Load
-   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &mods as UW_PESC:Utilities:UW_PESC_LOAD:Modules +/
    /+ Returns Boolean +/
    Local ApiObject &ci, &org, &dataColl, &data;
    Local integer &idx = &ctx.RecordIndex;
@@ -108,8 +110,13 @@ method Load
       %This.FillAcadData(&data, &ctx);
       %This.FillSummaries(&data.EXT_ACAD_SUM, &ctx);
 
-      %This.FillCourses(&org.EXT_COURSE, &ctx);
-      %This.FillDegrees(&org.EXT_DEGREE, &ctx);
+      /* EXTCRSE / EXTDEG modules; the data row above is always written */
+      If &mods.ExtCourses Then
+         %This.FillCourses(&org.EXT_COURSE, &ctx);
+      End-If;
+      If &mods.ExtDegrees Then
+         %This.FillDegrees(&org.EXT_DEGREE, &ctx);
+      End-If;
 
       If Not &ci.Save() Then
          &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS.Save");

@@ -1,0 +1,107 @@
+/* ===========================================================================
+ * UW_PESC:Utilities:UW_PESC_LOAD:Modules
+ *
+ * Which parts of a transcript get loaded, chosen per institution:
+ *
+ *    EXTDATA  External Education academic data row + GPA/rank summaries
+ *    EXTDEG   External Education degrees
+ *    EXTCRSE  External Education courses
+ *    CCM      Course Credits - Manual model with the incoming courses
+ *
+ * Built from a comma-separated list, e.g. "EXTDATA,EXTDEG,CCM". "NONE"
+ * selects nothing, which TranscriptLoader runs as a dry run (resolve and
+ * log, save nothing).
+ *
+ * EXTDEG and EXTCRSE rows point at an academic data row (career + data
+ * number), so choosing either one switches EXTDATA on too.
+ * ========================================================================= */
+
+class Modules
+   method Modules(&list As string);
+
+   property boolean ExtData;
+   property boolean ExtDegrees;
+   property boolean ExtCourses;
+   property boolean ManualCredit;
+   property string Unknown;
+
+   method AnyExtEd() Returns boolean;
+   method AnySelected() Returns boolean;
+   method ToText() Returns string;
+end-class;
+
+method Modules
+   /+ &list as String +/
+   Local array of string &parts;
+   Local string &p;
+   Local integer &i;
+
+   %This.ExtData = False;
+   %This.ExtDegrees = False;
+   %This.ExtCourses = False;
+   %This.ManualCredit = False;
+   %This.Unknown = "";
+
+   &parts = Split(Upper(&list), ",");
+   For &i = 1 To &parts.Len
+      &p = LTrim(RTrim(&parts [&i]));
+      Evaluate &p
+      When "EXTDATA"
+         %This.ExtData = True;
+         Break;
+      When "EXTDEG"
+         %This.ExtDegrees = True;
+         Break;
+      When "EXTCRSE"
+         %This.ExtCourses = True;
+         Break;
+      When "CCM"
+         %This.ManualCredit = True;
+         Break;
+      When ""
+         Break;
+      When "NONE"
+         Break;
+      When-Other
+         %This.Unknown = %This.Unknown | " " | &p;
+      End-Evaluate;
+   End-For;
+
+   If %This.ExtDegrees Or
+         %This.ExtCourses Then
+      %This.ExtData = True;
+   End-If;
+end-method;
+
+method AnyExtEd
+   /+ Returns Boolean +/
+   Return %This.ExtData;
+end-method;
+
+method AnySelected
+   /+ Returns Boolean +/
+   Return (%This.ExtData Or
+         %This.ManualCredit);
+end-method;
+
+method ToText
+   /+ Returns String +/
+   Local array of string &on = CreateArrayRept("", 0);
+
+   If %This.ExtData Then
+      &on.Push("EXTDATA");
+   End-If;
+   If %This.ExtDegrees Then
+      &on.Push("EXTDEG");
+   End-If;
+   If %This.ExtCourses Then
+      &on.Push("EXTCRSE");
+   End-If;
+   If %This.ManualCredit Then
+      &on.Push("CCM");
+   End-If;
+   If &on.Len = 0 Then
+      Return "none (dry run)";
+   End-If;
+   Return &on.Join(",", "", "");
+end-method;
