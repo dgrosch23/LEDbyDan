@@ -53,19 +53,19 @@ method Config
    %This.DefaultExtCareer = "UGRD";
    %This.DefaultArticulationTerm = "";
 
-   %This.DataSource = "";
-   %This.DataMedium = "";
+   %This.DataSource = "SCH";
+   %This.DataMedium = "E";
    %This.TranscriptStatus = "";
    /* EXT_ACAD_DATA.TRANSCRIPT_FLAG translate value (UWRVF: "D") */
-   %This.TranscriptFlag = "";
-   %This.ExtGradingScheme = "";
-   %This.ExtGradingBasis = "";
+   %This.TranscriptFlag = "D";
+   %This.ExtGradingScheme = "UGR";
+   %This.ExtGradingBasis = "GRD";
    /* EXT_COURSE.EXT_CRSE_TYPE is required: used when crosswalk
       EXT_CRSE_TYPE has no row for the course's CourseCreditBasis */
-   %This.DefaultExtCrseType = "";
+   %This.DefaultExtCrseType = "CRS";
    /* EXT_COURSE.COURSE_LEVEL is required: used when crosswalk
       COURSE_LEVEL has no row for CourseLevel / CourseCreditLevel */
-   %This.DefaultCourseLevel = "";
+   %This.DefaultCourseLevel = "RG";
 
    /* E = external organization */
    %This.TrnsfrSrcType = "E";
