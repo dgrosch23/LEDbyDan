@@ -101,7 +101,7 @@ courses link to the right `EXT_ACAD_DATA` row.
 | — (generated) | EXT_DATA_NBR | Next number for EMPLID + EXT_ORG_ID + EXT_CAREER. One per transcript received |
 | `TransmissionData/CreatedDateTime` | TRNSCR_DT † | Transcript date (date part) |
 | — (system date) | RECEIVED_DT † | Date received |
-| — (constant) | TRNSCR_FLAG † = `Y` | Transcript on file |
+| — (constant) | TRNSCR_FLAG † | Transcript on file. A translate value, not Y/N (UWRVF uses `D`) |
 | `TransmissionData/DocumentOfficialCode` (`Official`/`Unofficial`) | TRNSCR_TYPE † | Crosswalk to your XLAT |
 | — (constant) | TRNSCR_STATUS † | e.g., Received / Verified per your XLAT |
 | — (constant) | DATA_SOURCE † | Your "PESC/electronic" source value |
@@ -177,7 +177,7 @@ Courses can show up in two places. Load both:
 | `Course/CourseRepeatCode` | repeat field † | Keep it so you can apply repeat rules in TRNS_CRSE_MNL |
 | `Course/CourseQualityPointsEarned` | grade points field † | Optional |
 | (from parent AcademicRecord) | EXT_CAREER, EXT_DATA_NBR | Links the course to its 2b row |
-| — (constant) | TRANSCRIPT_FLAG † = `Y` | |
+| — (constant) | TRANSCRIPT_FLAG † | Translate value, not Y/N (UWRVF uses `D`) |
 
 Watch out for these courses:
 
