@@ -33,6 +33,7 @@ import UW_PESC:AcademicSessionDetailType;
 import UW_PESC:AcademicAwardType;
 import UW_PESC:CourseType;
 import UW_PESC:Utilities:UW_PESC_LOAD:Config;
+import UW_PESC:Utilities:UW_PESC_LOAD:StudentMatcher;
 import UW_PESC:Utilities:UW_PESC_LOAD:Modules;
 import UW_PESC:Utilities:UW_PESC_LOAD:Check;
 import UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk;
@@ -96,6 +97,8 @@ method Load
    Local array of any &contexts = CreateArrayAny();
    Local integer &at, &n;
    Local integer &i;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:StudentMatcher &matcher;
+   Local array of string &matches;
 
    &res = create UW_PESC:Utilities:UW_PESC_LOAD:LoadResult();
    &extEd = create UW_PESC:Utilities:UW_PESC_LOAD:ExtEducationLoader(%This.Config, %This.Crosswalk, &res);
@@ -118,13 +121,35 @@ method Load
    End-If;
    &student = &transcript.Student [1];
 
-   If None(&id) Then
+   /* ---- who is it: passed in, RecipientAssignedID, then Search/Match ---- */
+   If All(&id) Then
+      &res.MatchStatus = "PASSED";
+   Else
       &id = %This.ResolveEmplid(&student.Person);
+      If All(&id) Then
+         &res.MatchStatus = "RECIPIENTID";
+      End-If;
+   End-If;
+   If None(&id) And
+         %This.Config.UseSearchMatch Then
+      &matcher = create UW_PESC:Utilities:UW_PESC_LOAD:StudentMatcher(%This.Config, &res);
+      &matches = &matcher.Match(&student.Person);
+      &res.MatchStatus = &matcher.MatchStatus;
+      &res.MatchedEmplids = &matches.Join(",", "", "");
+      If &matches.Len = 1 Then
+         &id = &matches [1];
+      Else
+         If &matches.Len > 1 Then
+            &res.Err(0, "Search/Match found " | &matches.Len | " possible students (" | &res.MatchedEmplids | "); nothing loaded. Pick the right EMPLID and load the file with it.");
+            Return &res;
+         End-If;
+      End-If;
    End-If;
    If None(&id) Then
-      &res.Err(0, "No EMPLID: none was passed and Person/RecipientAssignedID doesn't match a PERSON row. Run Search/Match first.");
+      &res.Err(0, "No EMPLID: none was passed, Person/RecipientAssignedID doesn't match, and Search/Match found no one. Nothing loaded.");
       Return &res;
    End-If;
+   &res.Emplid = &id;
    SQLExec("SELECT 'Y' FROM PS_PERSON WHERE EMPLID = :1", &id, &found);
    If &found <> "Y" Then
       &res.Err(0, "EMPLID " | &id | " doesn't exist in PS_PERSON.");

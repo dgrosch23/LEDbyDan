@@ -21,6 +21,12 @@ class Config
    property string DefaultExtCareer;
    property string DefaultArticulationTerm;
 
+   /* ---- Search/Match (HCR_SM_SEARCH), used when no EMPLID is passed ---- */
+   property boolean UseSearchMatch;
+   property string SearchType;
+   property string SearchParmCode;
+   property string SearchResultCode;
+
    /* ---- ACAD_HIST_PERS constants (XLAT values; blank = leave alone) ---- */
    property string DataSource;
    property string DataMedium;
@@ -52,6 +58,12 @@ method Config
    %This.DefaultAcadCareer = "UGRD";
    %This.DefaultExtCareer = "UGRD";
    %This.DefaultArticulationTerm = "";
+
+   %This.UseSearchMatch = True;
+   /* SM_TYPE translate value for a Person search (check PSXLATITEM) */
+   %This.SearchType = "P";
+   %This.SearchParmCode = "UW_CGER_TSCRIPT";
+   %This.SearchResultCode = "UW_CGER_SM_RSLT";
 
    %This.DataSource = "SCH";
    %This.DataMedium = "E";

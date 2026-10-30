@@ -1,0 +1,224 @@
+/* ===========================================================================
+ * UW_PESC:Utilities:UW_PESC_LOAD:StudentMatcher
+ *
+ * Finds the student's EMPLID with the delivered Search/Match component
+ * interface HCR_SM_SEARCH, using the search parameter and result codes in
+ * Config (SearchType / SearchParmCode / SearchResultCode).
+ *
+ *    Local array of string &ids = &matcher.Match(&student.Person);
+ *    &matcher.MatchStatus   MATCH (1 id) / MULTIPLE / NONE / ERROR
+ *
+ * How the CI works (from its generated template):
+ *    keys              SM_TYPE, SM_PARM_CD, then Get()
+ *    HCR_SM_SRCHFLDV   one row per field in the search parameter; the value
+ *                      goes in SM_CHAR_INPUT or SM_DATE_INPUT on the row
+ *                      whose FIELDNAME matches
+ *    SM_SEARCH_BTN     the Search button: setting it runs the search
+ *    HCR_SM_PER_VW     one row per matching person (EMPLID)
+ *
+ * The search runs in the button's FieldChange. The CI has no Save, so it
+ * must run in interactive mode for that code to fire when the button is set.
+ *
+ * Transcript values used: Person/Name/FirstName and LastName,
+ * Person/Birth/BirthDate, and the first PostalCode under Person/Contacts
+ * (first 5 characters). Search fields the parameter has but the transcript
+ * can't fill are left blank and logged.
+ * ========================================================================= */
+import UW_PESC:PersonType;
+import UW_PESC:ContactsType;
+import UW_PESC:AddressType;
+import UW_PESC:Utilities:UW_PESC_LOAD:Config;
+import UW_PESC:Utilities:UW_PESC_LOAD:LoadResult;
+
+class StudentMatcher
+   method StudentMatcher(&settings As UW_PESC:Utilities:UW_PESC_LOAD:Config, &log As UW_PESC:Utilities:UW_PESC_LOAD:LoadResult);
+   method Match(&person As UW_PESC:PersonType) Returns array of string;
+
+   property string MatchStatus;
+
+private
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Config &cfg;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:LoadResult &res;
+
+   method PostalOf(&person As UW_PESC:PersonType) Returns string;
+end-class;
+
+method StudentMatcher
+   /+ &settings as UW_PESC:Utilities:UW_PESC_LOAD:Config, +/
+   /+ &log as UW_PESC:Utilities:UW_PESC_LOAD:LoadResult +/
+   &cfg = &settings;
+   &res = &log;
+   %This.MatchStatus = "";
+end-method;
+
+method Match
+   /+ &person as UW_PESC:PersonType +/
+   /+ Returns Array of String +/
+   Local array of string &ids = CreateArrayRept("", 0);
+   Local ApiObject &ci, &flds, &fld, &hits;
+   Local string &first = "";
+   Local string &last = "";
+   Local string &postal, &fieldName, &id, &rsltCd;
+   Local date &dob;
+   Local number &nbrFound;
+   Local integer &i;
+   Local integer &filled = 0;
+
+   %This.MatchStatus = "ERROR";
+
+   /* ---- what the transcript gives us ---- */
+   If &person = Null Then
+      &res.Err(0, "Search/Match: transcript has no Person.");
+      Return &ids;
+   End-If;
+   If &person.Name <> Null Then
+      &first = &person.Name.FirstName;
+      &last = &person.Name.LastName;
+   End-If;
+   If &person.Birth <> Null Then
+      &dob = &person.Birth.BirthDate;
+   End-If;
+   &postal = %This.PostalOf(&person);
+
+   If None(&first) Or
+         None(&last) Then
+      &res.Err(0, "Search/Match: transcript has no first or last name; can't search.");
+      Return &ids;
+   End-If;
+
+   /* ---- open the CI ---- */
+   &ci = %Session.GetCompIntfc(CompIntfc.HCR_SM_SEARCH);
+   If &ci = Null Then
+      &res.AddPSMessages(0, "GetCompIntfc HCR_SM_SEARCH");
+      &res.Err(0, "Search/Match: could not get component interface HCR_SM_SEARCH.");
+      Return &ids;
+   End-If;
+
+   /* the search button's FieldChange must fire when it's set */
+   &ci.InteractiveMode = True;
+   &ci.GetHistoryItems = True;
+   &ci.EditHistoryItems = False;
+   &ci.SM_TYPE = &cfg.SearchType;
+   &ci.SM_PARM_CD = &cfg.SearchParmCode;
+
+   If Not &ci.Get() Then
+      &res.AddPSMessages(0, "HCR_SM_SEARCH.Get");
+      &res.Err(0, "Search/Match: Get failed for search type " | &cfg.SearchType | " / parameter " | &cfg.SearchParmCode | ".");
+      Return &ids;
+   End-If;
+
+   try
+      &rsltCd = &cfg.SearchResultCode;
+      If All(&rsltCd) Then
+         &ci.SM_RSLT_CD = &rsltCd;
+      End-If;
+
+      /* ---- fill the search fields ---- */
+      &flds = &ci.HCR_SM_SRCHFLDV;
+      For &i = 1 To &flds.Count
+         &fld = &flds.Item(&i);
+         &fieldName = Upper(&fld.FIELDNAME);
+         Evaluate &fieldName
+         When "FIRST_NAME"
+            &fld.SM_CHAR_INPUT = &first;
+            &filled = &filled + 1;
+            Break;
+         When "LAST_NAME"
+            &fld.SM_CHAR_INPUT = &last;
+            &filled = &filled + 1;
+            Break;
+         When "BIRTHDATE"
+            If All(&dob) Then
+               &fld.SM_DATE_INPUT = &dob;
+               &filled = &filled + 1;
+            Else
+               &res.Info(0, "Search/Match: transcript has no BirthDate; BIRTHDATE left blank.");
+            End-If;
+            Break;
+         When "POSTAL"
+            If All(&postal) Then
+               &fld.SM_CHAR_INPUT = &postal;
+               &filled = &filled + 1;
+            Else
+               &res.Info(0, "Search/Match: transcript has no PostalCode; POSTAL left blank.");
+            End-If;
+            Break;
+         When ""
+            Break;
+         When-Other
+            &res.Info(0, "Search/Match: search field " | &fieldName | " has no transcript value; left blank.");
+         End-Evaluate;
+      End-For;
+
+      If &filled = 0 Then
+         &res.Err(0, "Search/Match: parameter " | &cfg.SearchParmCode | " has " | &flds.Count | " search field row(s), none of them FIRST_NAME / LAST_NAME / BIRTHDATE / POSTAL.");
+         &ci.Cancel();
+         Return &ids;
+      End-If;
+
+      /* ---- press Search ---- */
+      &ci.SM_SEARCH_BTN = "Y";
+      &nbrFound = &ci.SM_NBR_FOUND;
+
+      /* ---- collect the people found ---- */
+      &hits = &ci.HCR_SM_PER_VW;
+      For &i = 1 To &hits.Count
+         &id = &hits.Item(&i).EMPLID;
+         If All(&id) Then
+            If &ids.Find(&id) = 0 Then
+               &ids.Push(&id);
+            End-If;
+         End-If;
+      End-For;
+   catch Exception &e
+      &res.AddPSMessages(0, "HCR_SM_SEARCH");
+      &res.Err(0, "Search/Match stopped: " | &e.ToString());
+      &ci.Cancel();
+      Return &ids;
+   end-try;
+
+   &res.AddPSMessages(0, "HCR_SM_SEARCH");
+   &ci.Cancel();
+
+   Evaluate &ids.Len
+   When 0
+      %This.MatchStatus = "NONE";
+      Break;
+   When 1
+      %This.MatchStatus = "MATCH";
+      Break;
+   When-Other
+      %This.MatchStatus = "MULTIPLE";
+   End-Evaluate;
+
+   &res.Info(0, "Search/Match " | %This.MatchStatus | " for " | &first | " " | &last | " (" | &dob | ", " | &postal | "): " | &ids.Len | " person(s) [" | &ids.Join(", ", "", "") | "], SM_NBR_FOUND " | &nbrFound | ".");
+   Return &ids;
+end-method;
+
+method PostalOf
+   /+ &person as UW_PESC:PersonType +/
+   /+ Returns String +/
+   /* First PostalCode under Person/Contacts/Address, cut to 5 characters
+      (US ZIP). */
+   Local UW_PESC:ContactsType &contact;
+   Local UW_PESC:AddressType &addr;
+   Local string &zip;
+   Local integer &i, &j;
+
+   If &person.Contacts = Null Then
+      Return "";
+   End-If;
+   For &i = 1 To &person.Contacts.Len
+      &contact = &person.Contacts [&i];
+      If &contact.Address <> Null Then
+         For &j = 1 To &contact.Address.Len
+            &addr = &contact.Address [&j];
+            &zip = LTrim(RTrim(&addr.PostalCode));
+            If All(&zip) Then
+               Return Left(&zip, 5);
+            End-If;
+         End-For;
+      End-If;
+   End-For;
+   Return "";
+end-method;

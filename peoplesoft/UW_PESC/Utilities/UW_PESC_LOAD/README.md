@@ -65,6 +65,7 @@ All CI property names come from the generated templates for your two CIs.
 | `ExtEducationLoader` | UW_ACAD_HIST_PERS: one Get/Save/Cancel per AcademicRecord |
 | `TransferCreditLoader` | UW_TRNS_CRSE_MNL: one Get-or-Create/Save/Cancel per AcademicRecord |
 | `Crosswalk` | Every PESC → CS code lookup |
+| `StudentMatcher` | Finds the EMPLID with Search/Match (HCR_SM_SEARCH) when none is passed |
 | `RecordContext` | Resolved values for one AcademicRecord, shared by both loaders |
 | `CourseItem` | One course with its term, dates, unit type and skip decision |
 | `Config` | Institution, constants, behavior switches |
@@ -75,7 +76,7 @@ All CI property names come from the generated templates for your two CIs.
 Install in App Designer as subpackage `UW_PESC_LOAD` under `UW_PESC:Utilities`. Save in this order so the
 imports resolve: `Check` → `Config` → `Modules` → `LoadResult` → `Crosswalk` → `CourseItem` →
 `RecordContext` → `ExtEducationLoader` → `TransferCreditLoader` →
-`TranscriptLoader`.
+`StudentMatcher` → `TranscriptLoader`.
 
 ## Calling it
 
@@ -100,8 +101,17 @@ Local File &log = GetFile("PESC_LOAD.log", "A", %FilePath_Relative);
 &log.Close();
 ```
 
-Pass `""` as `&emplid` to use `Person/RecipientAssignedID` when it's a
-valid EMPLID. Otherwise run your Search/Match first and pass the result.
+Pass `""` as `&emplid` to have the loader find the student. It tries, in
+order:
+1. `Person/RecipientAssignedID`, if it's an existing EMPLID.
+2. Search/Match (`StudentMatcher`, when `Config.UseSearchMatch` is True).
+
+Only exactly one match loads. Several matches, or none, load nothing and
+log an error. After the load, `LoadResult.MatchStatus` holds `PASSED` /
+`RECIPIENTID` / `MATCH` / `MULTIPLE` / `NONE` / `ERROR`,
+`LoadResult.MatchedEmplids` lists the candidates, and `LoadResult.Emplid`
+is the EMPLID used. Write those to your suspense table when the status
+isn't a match.
 
 Each AcademicRecord gets its own CI saves. A school that fails (missing
 crosswalk, save error) is logged and the rest still load.
@@ -325,6 +335,25 @@ already compile, ignore it.
    - With `NONE`: the log has one "Dry run" line per AcademicRecord, and
      nothing was saved.
 5. Run the same file again. It should be skipped as a duplicate.
+
+## Search/Match setup
+
+`StudentMatcher` drives the delivered Search/Match CI, `HCR_SM_SEARCH`:
+
+- **Security:** add `HCR_SM_SEARCH` to the run user's permission list
+  with **Full Access** on `Get` and `Cancel`.
+- **Config:** `SearchType` (SM_TYPE for a Person search, `P`; check
+  `PSXLATITEM` for FIELDNAME `SM_TYPE`), `SearchParmCode`
+  (`UW_CGER_TSCRIPT`) and `SearchResultCode` (`UW_CGER_SM_RSLT`).
+- **Search fields filled:** `FIRST_NAME`, `LAST_NAME`, `BIRTHDATE` (from
+  Person/Birth/BirthDate) and `POSTAL` (the first PostalCode under
+  Person/Contacts, cut to 5 characters). Any other field in the parameter
+  is left blank and logged.
+- **How it runs:** after `Get()`, the loader fills the parameter's
+  search-field rows (`HCR_SM_SRCHFLDV`) and sets the Search button
+  (`SM_SEARCH_BTN`). It then reads the matches from `HCR_SM_PER_VW`. The
+  CI runs in interactive mode, because it has no Save and the search runs
+  in the button's FieldChange.
 
 ## Commits and rollback
 

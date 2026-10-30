@@ -14,6 +14,12 @@ class LoadResult
    method LoadResult();
 
    property boolean HasErrors;
+
+   /* how the EMPLID was found: PASSED / RECIPIENTID / MATCH / MULTIPLE /
+      NONE / ERROR; MatchedEmplids lists the candidates for MULTIPLE */
+   property string Emplid;
+   property string MatchStatus;
+   property string MatchedEmplids;
    property integer RecordsLoaded;
    property integer CoursesLoaded;
    property integer DegreesLoaded;
@@ -33,6 +39,9 @@ end-class;
 
 method LoadResult
    %This.HasErrors = False;
+   %This.Emplid = "";
+   %This.MatchStatus = "";
+   %This.MatchedEmplids = "";
    %This.RecordsLoaded = 0;
    %This.CoursesLoaded = 0;
    %This.DegreesLoaded = 0;
