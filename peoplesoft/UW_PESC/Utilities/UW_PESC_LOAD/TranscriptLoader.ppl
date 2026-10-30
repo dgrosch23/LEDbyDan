@@ -132,7 +132,7 @@ method Load
    End-If;
    If None(&id) And
          %This.Config.UseSearchMatch Then
-      &matcher = create UW_PESC:Utilities:UW_PESC_LOAD:StudentMatcher(%This.Config, &res);
+      &matcher = create UW_PESC:Utilities:UW_PESC_LOAD:StudentMatcher(%This.Config, %This.Crosswalk, &res);
       &matches = &matcher.Match(&student.Person);
       &res.MatchStatus = &matcher.MatchStatus;
       &res.MatchedEmplids = &matches.Join(",", "", "");

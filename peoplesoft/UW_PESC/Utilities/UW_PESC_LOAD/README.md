@@ -208,6 +208,7 @@ where the table says otherwise.
 | `REPEAT_CODE` | CourseRepeatCode | REPEAT_CODE | blank |
 | `SKIP_GRADE_STATUS` | CourseAcademicGradeStatusCode, e.g. `WITHDRAWN` | `Y` | sent to transfer credit |
 | `SKIP_CREDIT_BASIS` | CourseCreditBasis | `Y` | sent to transfer credit |
+| `SM_PARM_CD` / `SM_RSLT_CD` | INSTITUTION | Search/Match parameter / result code | `Config.SearchParmCode` / `SearchResultCode` |
 | `MODULES` | INSTITUTION, e.g. `UWRVF` | module list, e.g. `EXTDATA,EXTDEG,CCM` | `EXTDATA,EXTDEG,EXTCRSE` |
 
 Sample seed rows (replace the right-hand values with your XLATs):
@@ -230,6 +231,8 @@ INSERT INTO PS_UW_CGER_PESC_XW VALUES ('GRADING_BASIS',  'D',            'SUS');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('DEGREE_STATUS',  'TRUE',         'C');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('SKIP_GRADE_STATUS','WITHDRAWN',  'Y');
 INSERT INTO PS_UW_CGER_PESC_XW VALUES ('MODULES',        'UWRVF',        'EXTDATA,EXTDEG,CCM');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('SM_PARM_CD',     'UWRVF',        'UW_CGER_TSCRIPT');
+INSERT INTO PS_UW_CGER_PESC_XW VALUES ('SM_RSLT_CD',     'UWRVF',        'UW_CGER_SM_RSLT');
 ```
 
 ## Finding valid values
@@ -338,22 +341,35 @@ already compile, ignore it.
 
 ## Search/Match setup
 
-`StudentMatcher` drives the delivered Search/Match CI, `HCR_SM_SEARCH`:
+`StudentMatcher` drives the delivered Search/Match CI, `HCR_SM_SEARCH`,
+with whatever search parameter the school uses. The parameter's own search
+fields and rules drive the search.
 
 - **Security:** add `HCR_SM_SEARCH` to the run user's permission list
   with **Full Access** on `Get` and `Cancel`.
-- **Config:** `SearchType` (SM_TYPE for a Person search, `P`; check
-  `PSXLATITEM` for FIELDNAME `SM_TYPE`), `SearchParmCode`
-  (`UW_CGER_TSCRIPT`) and `SearchResultCode` (`UW_CGER_SM_RSLT`).
-- **Search fields filled:** `FIRST_NAME`, `LAST_NAME`, `BIRTHDATE` (from
-  Person/Birth/BirthDate) and `POSTAL` (the first PostalCode under
-  Person/Contacts, cut to 5 characters). Any other field in the parameter
-  is left blank and logged.
-- **How it runs:** after `Get()`, the loader fills the parameter's
-  search-field rows (`HCR_SM_SRCHFLDV`) and sets the Search button
-  (`SM_SEARCH_BTN`). It then reads the matches from `HCR_SM_PER_VW`. The
-  CI runs in interactive mode, because it has no Save and the search runs
-  in the button's FieldChange.
+- **Which parameter:** crosswalk `SM_PARM_CD` and `SM_RSLT_CD`, keyed by
+  INSTITUTION (like `MODULES`). Without a row, `Config.SearchParmCode` /
+  `SearchResultCode` apply. `Config.SearchType` is the SM_TYPE for a
+  Person search (`P`; check `PSXLATITEM` for FIELDNAME `SM_TYPE`).
+- **Search fields filled from the transcript:** `FIRST_NAME`,
+  `LAST_NAME`, `MIDDLE_NAME`, `BIRTHDATE`, `POSTAL` (first PostalCode
+  under Person/Contacts, 5 characters) and `NATIONAL_ID` (Person/SSN,
+  digits only). Other search fields are left blank.
+- **Tiered rules:** every rule in the parameter is run, through each
+  rule row's search button. A rule that uses a field the transcript
+  can't fill has its results ignored. The decision comes from the
+  **strictest result**: the usable rule(s) that found the fewest people,
+  but at least one. One person there is a MATCH, more is MULTIPLE, and
+  nobody found by any usable rule is NONE. This doesn't depend on the
+  order the school numbers its rules. Example with rules 10 First/Last,
+  20 First/Last/DOB and 30 First/Last/Postal, and no postal code: rule 30
+  is ignored, and if rule 10 finds 3 people while rule 20 finds 1, that
+  one person is the match.
+- **The log** gets one line per transcript showing the parameter, the
+  values searched and each rule's count, e.g.
+  `rule 10: 3; rule 20: 1; rule 30: ignored ... -> [3174445]`.
+- **How it runs:** the CI runs in interactive mode, because it has no
+  Save and the search buttons run their code as soon as they're set.
 
 ## Commits and rollback
 
