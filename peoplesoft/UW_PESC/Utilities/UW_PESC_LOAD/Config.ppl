@@ -1,0 +1,106 @@
+/* ===========================================================================
+ * UW_PESC:Utilities:UW_PESC_LOAD:Config
+ *
+ * Settings for one load run. Every value has a default in the constructor.
+ * Override them on the instance before passing it to TranscriptLoader.
+ *
+ * Optional CI fields are only set when their setting is not blank. A blank
+ * setting leaves the field to the component's own default.
+ *
+ *    Local UW_PESC:Utilities:UW_PESC_LOAD:Config &cfg = create UW_PESC:Utilities:UW_PESC_LOAD:Config();
+ *    &cfg.DataSource = "EXT";
+ *    &cfg.DefaultArticulationTerm = "2272";
+ * ========================================================================= */
+
+class Config
+   method Config();
+
+   /* ---- your institution ---- */
+   property string Institution;
+   property string DefaultAcadCareer;
+   property string DefaultExtCareer;
+   property string DefaultArticulationTerm;
+
+   /* ---- Search/Match (HCR_SM_SEARCH), used when no EMPLID is passed ---- */
+   property boolean UseSearchMatch;
+   property string SearchType;
+   property string SearchParmCode;
+   property string SearchResultCode;
+
+   /* ---- ACAD_HIST_PERS constants (XLAT values; blank = leave alone) ---- */
+   property string DataSource;
+   property string DataMedium;
+   property string TranscriptStatus;
+   property string TranscriptFlag;
+   property string ExtGradingScheme;
+   property string ExtGradingBasis;
+   property string DefaultExtCrseType;
+   property string DefaultCourseLevel;
+
+   /* ---- TRNS_CRSE_MNL constants ---- */
+   property string TrnsfrSrcType;
+   property string TrnsGradingScheme;
+   property string TrnsGradingBasis;
+   property string IncludeInGpa;
+   property string GenericCrseId;
+   property number GenericCrseOfferNbr;
+   property string ModuleList;
+
+   /* ---- behavior ---- */
+   property boolean SkipDuplicateTranscripts;
+   property boolean CommitEachRecord;
+   property boolean InteractiveMode;
+   property number DescrLength;
+end-class;
+
+method Config
+   %This.Institution = "UWRVF";
+   %This.DefaultAcadCareer = "UGRD";
+   %This.DefaultExtCareer = "UGRD";
+   %This.DefaultArticulationTerm = "";
+
+   %This.UseSearchMatch = True;
+   /* SM_TYPE translate value for a Person search (check PSXLATITEM) */
+   %This.SearchType = "P";
+   %This.SearchParmCode = "UW_CGER_TSCRIPT";
+   %This.SearchResultCode = "UW_CGER_SM_RSLT";
+
+   %This.DataSource = "SCH";
+   %This.DataMedium = "E";
+   %This.TranscriptStatus = "";
+   /* EXT_ACAD_DATA.TRANSCRIPT_FLAG translate value (UWRVF: "D") */
+   %This.TranscriptFlag = "D";
+   %This.ExtGradingScheme = "UGR";
+   %This.ExtGradingBasis = "GRD";
+   /* EXT_COURSE.EXT_CRSE_TYPE is required: used when crosswalk
+      EXT_CRSE_TYPE has no row for the course's CourseCreditBasis */
+   %This.DefaultExtCrseType = "CRS";
+   /* EXT_COURSE.COURSE_LEVEL is required: used when crosswalk
+      COURSE_LEVEL has no row for CourseLevel / CourseCreditLevel */
+   %This.DefaultCourseLevel = "RG";
+
+   /* E = external organization */
+   %This.TrnsfrSrcType = "E";
+   %This.TrnsGradingScheme = "";
+   %This.TrnsGradingBasis = "";
+   %This.IncludeInGpa = "";
+   /* Only needed if Course Credits - Manual won't save a row without an
+      equivalent course: set a placeholder course for evaluators to replace.
+      Blank = rows are saved with CRSE_ID empty. */
+   %This.GenericCrseId = "";
+   %This.GenericCrseOfferNbr = 1;
+
+   /* Which parts to load (see Modules.ppl), e.g. "EXTDATA,EXTDEG,CCM".
+      Blank = look up crosswalk MODULES for Institution, and if there's no
+      row, load all of External Education: "EXTDATA,EXTDEG,EXTCRSE". */
+   %This.ModuleList = "";
+   %This.SkipDuplicateTranscripts = True;
+   /* CI saves aren't committed until the run ends, and one failed save
+      rolls back everything not yet committed: other schools included.
+      True = CommitWork() after each school's External Education and again
+      after its CCM model, so a failure only loses that one step. Use it from App Engine; online, CommitWork() is only allowed
+      in some events. */
+   %This.CommitEachRecord = False;
+   %This.InteractiveMode = False;
+   %This.DescrLength = 30;
+end-method;

@@ -1,0 +1,672 @@
+/* ===========================================================================
+ * UW_PESC:Utilities:UW_PESC_LOAD:ExtEducationLoader
+ *
+ * Loads one PESC AcademicRecord (or several merged ones for the same
+ * school) into External Education through UW_ACAD_HIST_PERS, in two saves:
+ *
+ *    1. the academic data row and its summaries
+ *    2. courses and degrees (EXTCRSE / EXTDEG modules)
+ *
+ * Courses and degrees carry the data number, and that field's prompt only
+ * lists data rows already in the database. That's why the data row has to
+ * be saved first.
+ *
+ * Neither save commits. Everything commits when the run ends, or per
+ * school with Config.CommitEachRecord. A failed save usually rolls back
+ * save 1 as well, so after a failure the log reports what the database
+ * actually holds.
+ *
+ * CI shape (from the generated template):
+ *    root            EMPLID
+ *    ACAD_HISTORY    one row per EXT_ORG_ID, plus "course default" fields
+ *      EXT_ACAD_DATA one row per career + data number
+ *        EXT_ACAD_SUM
+ *      EXT_COURSE    EXT_COURSE_NBR is assigned by the component
+ *      EXT_DEGREE    EXT_DEGREE_NBR is assigned by the component
+ *
+ * EXT_ACAD_DATA's keys (EXT_CAREER, EXT_DATA_NBR) must be added to the
+ * generated CI. After save 1, SQL checks that the row landed under those
+ * keys. See README.md, "CI gaps".
+ * ========================================================================= */
+import UW_PESC:AcademicSummaryFType;
+import UW_PESC:AcademicAwardType;
+import UW_PESC:AcademicHonorsType;
+import UW_PESC:AcademicProgramType;
+import UW_PESC:CourseType;
+import UW_PESC:Utilities:UW_PESC_LOAD:Config;
+import UW_PESC:Utilities:UW_PESC_LOAD:Modules;
+import UW_PESC:Utilities:UW_PESC_LOAD:Check;
+import UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk;
+import UW_PESC:Utilities:UW_PESC_LOAD:LoadResult;
+import UW_PESC:Utilities:UW_PESC_LOAD:RecordContext;
+import UW_PESC:Utilities:UW_PESC_LOAD:CourseItem;
+
+class ExtEducationLoader
+   method ExtEducationLoader(&config As UW_PESC:Utilities:UW_PESC_LOAD:Config, &xwalk As UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk, &result As UW_PESC:Utilities:UW_PESC_LOAD:LoadResult);
+   method Load(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &mods As UW_PESC:Utilities:UW_PESC_LOAD:Modules) Returns boolean;
+
+private
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Config &cfg;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk &xw;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:LoadResult &res;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Check &chk;
+   instance boolean &orgIsNew;
+   instance integer &pendingCourses;
+   instance integer &pendingDegrees;
+
+   method OpenCI(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns ApiObject;
+   method SaveCI(&ci As ApiObject, &idx As integer, &what As string) Returns boolean;
+   method FindOrAddOrg(&orgColl As ApiObject, &extOrgId As string) Returns ApiObject;
+   method SetOrgDefaults(&org As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillAcadData(&data As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillSummaries(&sumColl As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillCourses(&crseColl As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillDegrees(&degColl As ApiObject, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FillOneDegree(&row As ApiObject, &award As UW_PESC:AcademicAwardType, &degree As string, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method DegreeExists(&degColl As ApiObject, &degree As string, &degreeDt As date) Returns boolean;
+   method VerifySaved(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
+   method DataRowExists(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
+end-class;
+
+method ExtEducationLoader
+   /+ &config as UW_PESC:Utilities:UW_PESC_LOAD:Config, +/
+   /+ &xwalk as UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk, +/
+   /+ &result as UW_PESC:Utilities:UW_PESC_LOAD:LoadResult +/
+   &cfg = &config;
+   &xw = &xwalk;
+   &res = &result;
+   &chk = create UW_PESC:Utilities:UW_PESC_LOAD:Check();
+end-method;
+
+method Load
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &mods as UW_PESC:Utilities:UW_PESC_LOAD:Modules +/
+   /+ Returns Boolean +/
+   Local ApiObject &ci, &org, &dataColl, &data;
+   Local integer &idx = &ctx.RecordIndex;
+
+   &pendingCourses = 0;
+   &pendingDegrees = 0;
+
+   /* ---- save 1: academic data row + summaries ---- */
+   &ci = %This.OpenCI(&ctx);
+   If &ci = Null Then
+      Return False;
+   End-If;
+   try
+      &org = %This.FindOrAddOrg(&ci.ACAD_HISTORY, &ctx.ExtOrgId);
+      %This.SetOrgDefaults(&org, &ctx);
+
+      /* A new org row comes with one blank EXT_ACAD_DATA row. An existing
+         org always gets a new row. Its existing rows are other transcripts. */
+      &dataColl = &org.EXT_ACAD_DATA;
+      If &orgIsNew And
+            &dataColl.Count > 0 Then
+         &data = &dataColl.Item(1);
+      Else
+         &data = &dataColl.InsertItem(&dataColl.Count);
+      End-If;
+      %This.FillAcadData(&data, &ctx);
+      %This.FillSummaries(&data.EXT_ACAD_SUM, &ctx);
+   catch Exception &e1
+      &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS");
+      &res.Err(&idx, "UW_ACAD_HIST_PERS load stopped: " | &e1.ToString());
+      &ci.Cancel();
+      Return False;
+   end-try;
+   If Not %This.SaveCI(&ci, &idx, "Academic data for " | &ctx.ExtOrgId) Then
+      Return False;
+   End-If;
+   If Not %This.VerifySaved(&ctx) Then
+      Return False;
+   End-If;
+
+   /* ---- save 2: courses and degrees, now that the data row exists ---- */
+   If Not (&mods.ExtCourses Or
+         &mods.ExtDegrees) Then
+      Return True;
+   End-If;
+   &ci = %This.OpenCI(&ctx);
+   If &ci = Null Then
+      Return False;
+   End-If;
+   try
+      &org = %This.FindOrAddOrg(&ci.ACAD_HISTORY, &ctx.ExtOrgId);
+      If &mods.ExtCourses Then
+         %This.FillCourses(&org.EXT_COURSE, &ctx);
+      End-If;
+      If &mods.ExtDegrees Then
+         %This.FillDegrees(&org.EXT_DEGREE, &ctx);
+      End-If;
+   catch Exception &e2
+      &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS");
+      &res.Err(&idx, "UW_ACAD_HIST_PERS course/degree load stopped: " | &e2.ToString());
+      &ci.Cancel();
+      Return False;
+   end-try;
+   If Not %This.SaveCI(&ci, &idx, "Courses and degrees for " | &ctx.ExtOrgId) Then
+      If %This.DataRowExists(&ctx) Then
+         &res.Err(&idx, "Data row " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | " is still there without its courses and degrees. Fix the errors above, then delete that data row (or set Config.SkipDuplicateTranscripts = False) and load the file again.");
+      Else
+         &res.Err(&idx, "The failed save also rolled back data row " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | ", so nothing is saved for this school. Fix the errors above and load the file again.");
+      End-If;
+      Return False;
+   End-If;
+
+   &res.CoursesLoaded = &res.CoursesLoaded + &pendingCourses;
+   &res.DegreesLoaded = &res.DegreesLoaded + &pendingDegrees;
+   Return True;
+end-method;
+
+method OpenCI
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns ApiObject +/
+   Local ApiObject &ci;
+   Local integer &idx = &ctx.RecordIndex;
+
+   &ci = %Session.GetCompIntfc(CompIntfc.UW_ACAD_HIST_PERS);
+   If &ci = Null Then
+      &res.AddPSMessages(&idx, "GetCompIntfc UW_ACAD_HIST_PERS");
+      &res.Err(&idx, "Could not get component interface UW_ACAD_HIST_PERS.");
+      Return Null;
+   End-If;
+
+   &ci.InteractiveMode = &cfg.InteractiveMode;
+   &ci.GetHistoryItems = True;
+   &ci.EditHistoryItems = False;
+   &ci.EMPLID = &ctx.Emplid;
+
+   If Not &ci.Get() Then
+      &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS.Get");
+      &res.Err(&idx, "UW_ACAD_HIST_PERS Get failed for EMPLID " | &ctx.Emplid | ".");
+      Return Null;
+   End-If;
+   Return &ci;
+end-method;
+
+method SaveCI
+   /+ &ci as ApiObject, +/
+   /+ &idx as Integer, +/
+   /+ &what as String +/
+   /+ Returns Boolean +/
+   Local boolean &ok;
+
+   &ok = &ci.Save();
+   &res.AddPSMessages(&idx, "UW_ACAD_HIST_PERS.Save");
+   If Not &ok Then
+      &res.Err(&idx, &what | ": UW_ACAD_HIST_PERS Save failed; nothing in this save was kept.");
+   End-If;
+   &ci.Cancel();
+   Return &ok;
+end-method;
+
+method FindOrAddOrg
+   /+ &orgColl as ApiObject, +/
+   /+ &extOrgId as String +/
+   /+ Returns ApiObject +/
+   Local ApiObject &row;
+   Local integer &i;
+
+   For &i = 1 To &orgColl.Count
+      &row = &orgColl.Item(&i);
+      If &row.EXT_ORG_ID = &extOrgId Then
+         &orgIsNew = False;
+         Return &row;
+      End-If;
+   End-For;
+
+   &orgIsNew = True;
+   /* a student with no external education has one blank row */
+   If &orgColl.Count = 1 Then
+      &row = &orgColl.Item(1);
+      If &chk.IsBlank(&row.EXT_ORG_ID) Then
+         &row.EXT_ORG_ID = &extOrgId;
+         Return &row;
+      End-If;
+   End-If;
+
+   &row = &orgColl.InsertItem(&orgColl.Count);
+   &row.EXT_ORG_ID = &extOrgId;
+   Return &row;
+end-method;
+
+method SetOrgDefaults
+   /+ &org as ApiObject, +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /* ACAD_HISTORY holds the defaults that new EXT_ACAD_DATA / EXT_COURSE /
+      EXT_DEGREE rows copy. Set them before inserting child rows. */
+   /* EXT_DATA_NBR is not defaulted here: its prompt only lists data
+      numbers already saved, so a new one fails with "Invalid value". */
+   &org.EXT_CAREER = &ctx.ExtCareer;
+   If &chk.IsSet(&cfg.Institution) Then
+      &org.INSTITUTION = &cfg.Institution;
+   End-If;
+   If &chk.IsSet(&cfg.DataSource) Then
+      &org.LS_DATA_SOURCE_0 = &cfg.DataSource;
+   End-If;
+   If &chk.IsSet(&ctx.UnitType) Then
+      &org.UNT_TYPE = &ctx.UnitType;
+   End-If;
+   If &chk.IsSet(&ctx.AsOfExtTermType) Then
+      &org.EXT_TERM_TYPE = &ctx.AsOfExtTermType;
+   End-If;
+   If &chk.IsSet(&cfg.ExtGradingScheme) Then
+      &org.GRADING_SCHEME = &cfg.ExtGradingScheme;
+   End-If;
+   If &chk.IsSet(&cfg.ExtGradingBasis) Then
+      &org.GRADING_BASIS = &cfg.ExtGradingBasis;
+   End-If;
+end-method;
+
+method FillAcadData
+   /+ &data as ApiObject, +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /* The keys aren't in the generated CI. Set them only if someone added
+      them, otherwise the ACAD_HISTORY defaults supply them. */
+   try
+      &data.EXT_CAREER = &ctx.ExtCareer;
+      &data.EXT_DATA_NBR = &ctx.ExtDataNbr;
+   catch Exception &noKeys
+      /* not exposed: VerifySaved() checks the result after the save */
+   end-try;
+
+   /* TRANSCRIPT_FLAG is a translate field, not Y/N; blank = component default */
+   If &chk.IsSet(&cfg.TranscriptFlag) Then
+      &data.TRANSCRIPT_FLAG = &cfg.TranscriptFlag;
+   End-If;
+   &data.TRANSCRIPT_DT = &ctx.TranscriptDt;
+   &data.RECEIVED_DT = %Date;
+   If &chk.IsSet(&ctx.TranscriptType) Then
+      &data.TRANSCRIPT_TYPE = &ctx.TranscriptType;
+   End-If;
+   If &chk.IsSet(&cfg.TranscriptStatus) Then
+      &data.TRNSCRPT_STATUS = &cfg.TranscriptStatus;
+   End-If;
+   If &chk.IsSet(&cfg.DataSource) Then
+      &data.LS_DATA_SOURCE_1 = &cfg.DataSource;
+   End-If;
+   If &chk.IsSet(&cfg.DataMedium) Then
+      &data.DATA_MEDIUM = &cfg.DataMedium;
+   End-If;
+   If &chk.IsSet(&ctx.ExtAcadLevel) Then
+      &data.EXT_ACAD_LEVEL_0 = &ctx.ExtAcadLevel;
+   End-If;
+   If &chk.IsSet(&ctx.AsOfExtTermType) Then
+      &data.EXT_TERM_TYPE_0 = &ctx.AsOfExtTermType;
+   End-If;
+   If &chk.IsSet(&ctx.AsOfExtTerm) Then
+      &data.EXT_TERM_0 = &ctx.AsOfExtTerm;
+   End-If;
+   If &ctx.AsOfTermYear > 0 Then
+      &data.TERM_YEAR_0 = &ctx.AsOfTermYear;
+   End-If;
+   If &chk.IsSet(&ctx.FromDt) Then
+      &data.FROM_DT = &ctx.FromDt;
+   End-If;
+   If &chk.IsSet(&ctx.ToDt) Then
+      &data.TO_DT = &ctx.ToDt;
+   End-If;
+end-method;
+
+method FillSummaries
+   /+ &sumColl as ApiObject, +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /* Only AcademicRecord/AcademicSummary (career totals), collected from
+      every record merged into &ctx. Session-level summaries are term GPAs
+      and have no place in External Education. */
+   Local array of any &sums = &ctx.Summaries;
+   Local UW_PESC:AcademicSummaryFType &s;
+   Local array of string &usedTypes = CreateArrayRept("", 0);
+   Local ApiObject &row;
+   Local string &summType, &gpaType, &unitType;
+   Local integer &i;
+   Local integer &idx = &ctx.RecordIndex;
+
+   For &i = 1 To &sums.Len
+      &s = &sums [&i];
+      &summType = &xw.Lookup("EXT_SUMM_TYPE", &s.AcademicSummaryType);
+
+      If None(&summType) Then
+         &res.Info(&idx, "AcademicSummary type '" | &s.AcademicSummaryType | "' has no EXT_SUMM_TYPE crosswalk; skipped.");
+      Else
+         If &s.GPA = Null Then
+            &res.Info(&idx, "AcademicSummary type '" | &s.AcademicSummaryType | "' has no GPA; skipped.");
+         Else
+            If &usedTypes.Find(&summType) > 0 Then
+               &res.Warn(&idx, "A second AcademicSummary maps to EXT_SUMM_TYPE " | &summType | "; only the first was loaded.");
+            Else
+               &usedTypes.Push(&summType);
+
+               &row = Null;
+               If &sumColl.Count = 1 Then
+                  If &chk.IsBlank(&sumColl.Item(1).EXT_SUMM_TYPE) Then
+                     &row = &sumColl.Item(1);
+                  End-If;
+               End-If;
+               If &row = Null Then
+                  &row = &sumColl.InsertItem(&sumColl.Count);
+               End-If;
+
+               &row.EXT_SUMM_TYPE = &summType;
+               If &chk.IsSet(&cfg.Institution) Then
+                  &row.INSTITUTION_0 = &cfg.Institution;
+               End-If;
+               If &chk.IsSet(&ctx.ExtAcadLevel) Then
+                  &row.EXT_ACAD_LEVEL_1 = &ctx.ExtAcadLevel;
+               End-If;
+               If &ctx.AsOfTermYear > 0 Then
+                  &row.TERM_YEAR_1 = &ctx.AsOfTermYear;
+               End-If;
+               If &chk.IsSet(&ctx.AsOfExtTerm) Then
+                  &row.EXT_TERM_1 = &ctx.AsOfExtTerm;
+               End-If;
+
+               &unitType = &xw.Lookup("UNT_TYPE", &s.GPA.CreditUnit);
+               If None(&unitType) Then
+                  &unitType = &ctx.UnitType;
+               End-If;
+               If All(&unitType) Then
+                  &row.UNT_TYPE_0 = &unitType;
+               End-If;
+
+               &row.UNT_ATMP_TOTAL = &s.GPA.CreditHoursAttempted;
+               &row.UNT_COMP_TOTAL = &s.GPA.CreditHoursEarned;
+               &row.EXT_GPA = &s.GPA.GradePointAverage;
+
+               If &s.GPA.GPARangeMaximum > 0 Then
+                  &gpaType = &xw.Lookup("GPA_TYPE", String(&s.GPA.GPARangeMaximum));
+                  If All(&gpaType) Then
+                     &row.GPA_TYPE = &gpaType;
+                  End-If;
+               End-If;
+               If &s.ClassRank > 0 Then
+                  &row.CLASS_RANK = &s.ClassRank;
+               End-If;
+               If &s.ClassSize > 0 Then
+                  &row.CLASS_SIZE = &s.ClassSize;
+               End-If;
+            End-If;
+         End-If;
+      End-If;
+   End-For;
+end-method;
+
+method FillCourses
+   /+ &crseColl as ApiObject, +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &item;
+   Local UW_PESC:CourseType &c;
+   Local ApiObject &row;
+   Local string &v;
+   Local integer &i;
+   Local integer &idx = &ctx.RecordIndex;
+
+   For &i = 1 To &ctx.Courses.Len
+      &item = &ctx.Courses [&i];
+      &c = &item.Course;
+
+      If &chk.IsSet(&item.SkipReason) Then
+         &res.Info(&idx, "Course " | &c.CourseSubjectAbbreviation | " " | &c.CourseNumber | " skipped: " | &item.SkipReason);
+      Else
+         /* a new org row comes with one blank course row */
+         &row = Null;
+         If &crseColl.Count = 1 Then
+            If &chk.IsBlank(&crseColl.Item(1).SCHOOL_SUBJECT) And
+                  &chk.IsBlank(&crseColl.Item(1).DESCR_0) Then
+               &row = &crseColl.Item(1);
+            End-If;
+         End-If;
+         If &row = Null Then
+            &row = &crseColl.InsertItem(&crseColl.Count);
+         End-If;
+
+         /* keys and term first: later fields may edit against them */
+         &row.EXT_CAREER_0 = &ctx.ExtCareer;
+         &row.EXT_DATA_NBR_0 = &ctx.ExtDataNbr;
+         If &chk.IsSet(&cfg.Institution) Then
+            &row.INSTITUTION_2 = &cfg.Institution;
+         End-If;
+         If &chk.IsSet(&item.ExtTermType) Then
+            &row.EXT_TERM_TYPE_1 = &item.ExtTermType;
+         End-If;
+         If &item.TermYear > 0 Then
+            &row.TERM_YEAR_2 = &item.TermYear;
+         End-If;
+         If &chk.IsSet(&item.ExtTerm) Then
+            &row.EXT_TERM_2 = &item.ExtTerm;
+         End-If;
+         If &chk.IsSet(&item.BeginDt) Then
+            &row.BEGIN_DT_0 = &item.BeginDt;
+         End-If;
+         If &chk.IsSet(&item.EndDt) Then
+            &row.END_DT_0 = &item.EndDt;
+         End-If;
+
+         &row.SCHOOL_SUBJECT = Upper(&c.CourseSubjectAbbreviation);
+         &row.SCHOOL_CRSE_NBR = Upper(&c.CourseNumber);
+         &row.DESCR_0 = Left(&c.CourseTitle, &cfg.DescrLength);
+
+         If &chk.IsSet(&item.UnitType) Then
+            &row.UNT_TYPE_2 = &item.UnitType;
+         End-If;
+         &row.UNT_TAKEN_0 = &c.CourseCreditValue;
+
+         If &chk.IsSet(&cfg.ExtGradingScheme) Then
+            &row.GRADING_SCHEME_0 = &cfg.ExtGradingScheme;
+         End-If;
+         /* grading basis per grade scale (e.g. D = developmental), then
+            Config; the grade must be valid for the scheme and basis */
+         &v = &xw.Lookup("GRADING_BASIS", &c.CourseAcademicGradeScaleCode);
+         If None(&v) Then
+            &v = &cfg.ExtGradingBasis;
+         End-If;
+         If All(&v) Then
+            &row.GRADING_BASIS_0 = &v;
+         End-If;
+         &v = &xw.CourseGrade(&c.CourseAcademicGradeScaleCode, &c.CourseAcademicGrade);
+         If All(&v) Then
+            &row.CRSE_GRADE_INPUT = &v;
+         End-If;
+
+         /* required field */
+         &v = &xw.Lookup("EXT_CRSE_TYPE", &c.CourseCreditBasis);
+         If None(&v) Then
+            &v = &cfg.DefaultExtCrseType;
+         End-If;
+         If All(&v) Then
+            &row.EXT_CRSE_TYPE_1 = &v;
+         End-If;
+         /* required field */
+         &v = &xw.LookupFirst("COURSE_LEVEL", CreateArray(&c.CourseLevel, &c.CourseCreditLevel));
+         If None(&v) Then
+            &v = &cfg.DefaultCourseLevel;
+         End-If;
+         If All(&v) Then
+            &row.COURSE_LEVEL_0 = &v;
+         End-If;
+         &v = &xw.LookupFirst("EXT_SUBJECT_AREA", CreateArray(&c.CourseCIPCode, &c.CourseSubjectAbbreviation));
+         If All(&v) Then
+            &row.EXT_SUBJECT_AREA_1 = &v;
+         End-If;
+         If &chk.IsSet(&ctx.ExtAcadLevel) Then
+            &row.EXT_ACAD_LEVEL_2 = &ctx.ExtAcadLevel;
+         End-If;
+         If &chk.IsSet(&cfg.DataSource) Then
+            &row.LS_DATA_SOURCE_2 = &cfg.DataSource;
+         End-If;
+
+         &pendingCourses = &pendingCourses + 1;
+      End-If;
+   End-For;
+end-method;
+
+method FillDegrees
+   /+ &degColl as ApiObject, +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   Local UW_PESC:AcademicAwardType &award;
+   Local ApiObject &row;
+   Local string &degree;
+   Local date &degreeDt;
+   Local integer &i;
+   Local integer &idx = &ctx.RecordIndex;
+
+   For &i = 1 To &ctx.Awards.Len
+      &award = &ctx.Awards [&i];
+      &degree = &xw.LookupFirst("DEGREE", CreateArray(&award.AcademicAwardLevel | ":" | &award.AcademicAwardTitle, &award.AcademicAwardLevel, &award.AcademicAwardTitle));
+
+      &degreeDt = &award.AcademicAwardDate;
+      If None(&degreeDt) Then
+         &degreeDt = &award.AcademicCompletionDate;
+      End-If;
+
+      If None(&degree) Then
+         &res.Warn(&idx, "AcademicAward '" | &award.AcademicAwardLevel | " / " | &award.AcademicAwardTitle | "' has no DEGREE crosswalk; skipped.");
+      Else
+         If %This.DegreeExists(&degColl, &degree, &degreeDt) Then
+            &res.Info(&idx, "Degree " | &degree | " already on file for this school; skipped.");
+         Else
+            &row = Null;
+            If &degColl.Count = 1 Then
+               If &chk.IsBlank(&degColl.Item(1).DEGREE) Then
+                  &row = &degColl.Item(1);
+               End-If;
+            End-If;
+            If &row = Null Then
+               &row = &degColl.InsertItem(&degColl.Count);
+            End-If;
+            %This.FillOneDegree(&row, &award, &degree, &ctx);
+            &pendingDegrees = &pendingDegrees + 1;
+         End-If;
+      End-If;
+   End-For;
+end-method;
+
+method FillOneDegree
+   /+ &row as ApiObject, +/
+   /+ &award as UW_PESC:AcademicAwardType, +/
+   /+ &degree as String, +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   Local array of UW_PESC:AcademicProgramType &progs = &award.AcademicAwardProgram;
+   Local array of any &picked = CreateArrayAny();
+   Local UW_PESC:AcademicProgramType &p;
+   Local UW_PESC:AcademicHonorsType &h;
+   Local string &v, &completed;
+   Local integer &i;
+
+   &row.DEGREE = &degree;
+   &row.EXT_CAREER_1 = &ctx.ExtCareer;
+   &row.EXT_DATA_NBR_1 = &ctx.ExtDataNbr;
+   If &chk.IsSet(&award.AcademicAwardTitle) Then
+      &row.DESCR_1 = Left(&award.AcademicAwardTitle, &cfg.DescrLength);
+   End-If;
+   If &chk.IsSet(&award.AcademicAwardDate) Then
+      &row.DEGREE_DT = &award.AcademicAwardDate;
+   Else
+      If &chk.IsSet(&award.AcademicCompletionDate) Then
+         &row.DEGREE_DT = &award.AcademicCompletionDate;
+      End-If;
+   End-If;
+
+   /* An award with a date counts as conferred even without the indicator. */
+   &completed = "FALSE";
+   If &award.AcademicCompletionIndicator Or
+         &chk.IsSet(&award.AcademicAwardDate) Then
+      &completed = "TRUE";
+   End-If;
+   &v = &xw.Lookup("DEGREE_STATUS", &completed);
+   If All(&v) Then
+      &row.DEGREE_STATUS = &v;
+   End-If;
+
+   If &award.AcademicHonors <> Null Then
+      If &award.AcademicHonors.Len > 0 Then
+         &h = &award.AcademicHonors [1];
+         &v = &xw.LookupFirst("HONORS_CATEGORY", CreateArray(&h.HonorsLevel, &h.HonorsTitle));
+         If All(&v) Then
+            &row.HONORS_CATEGORY = &v;
+         End-If;
+      End-If;
+   End-If;
+
+   /* Up to two fields of study: majors first, then anything else. */
+   If &progs <> Null Then
+      For &i = 1 To &progs.Len
+         If Upper(&progs [&i].AcademicProgramType) = "MAJOR" Then
+            &picked.Push(&progs [&i]);
+         End-If;
+      End-For;
+      For &i = 1 To &progs.Len
+         If Upper(&progs [&i].AcademicProgramType) <> "MAJOR" Then
+            &picked.Push(&progs [&i]);
+         End-If;
+      End-For;
+   End-If;
+
+   If &picked.Len >= 1 Then
+      &p = &picked [1];
+      &v = &xw.LookupFirst("FIELD_OF_STUDY", CreateArray(&p.ProgramCIPCode, &p.AcademicProgramName));
+      If All(&v) Then
+         &row.FIELD_OF_STUDY_1 = &v;
+      End-If;
+      &v = &xw.Lookup("EXT_SUBJ_AREA", &p.ProgramCIPCode);
+      If All(&v) Then
+         &row.EXT_SUBJ_AREA_1 = &v;
+      End-If;
+   End-If;
+   If &picked.Len >= 2 Then
+      &p = &picked [2];
+      &v = &xw.LookupFirst("FIELD_OF_STUDY", CreateArray(&p.ProgramCIPCode, &p.AcademicProgramName));
+      If All(&v) Then
+         &row.FIELD_OF_STUDY_2 = &v;
+      End-If;
+      &v = &xw.Lookup("EXT_SUBJ_AREA", &p.ProgramCIPCode);
+      If All(&v) Then
+         &row.EXT_SUBJ_AREA_2 = &v;
+      End-If;
+   End-If;
+
+   If &chk.IsSet(&cfg.DataSource) Then
+      &row.LS_DATA_SOURCE_3 = &cfg.DataSource;
+   End-If;
+end-method;
+
+method DegreeExists
+   /+ &degColl as ApiObject, +/
+   /+ &degree as String, +/
+   /+ &degreeDt as Date +/
+   /+ Returns Boolean +/
+   Local ApiObject &row;
+   Local integer &i;
+
+   For &i = 1 To &degColl.Count
+      &row = &degColl.Item(&i);
+      If &row.DEGREE = &degree And
+            &row.DEGREE_DT = &degreeDt Then
+         Return True;
+      End-If;
+   End-For;
+   Return False;
+end-method;
+
+method VerifySaved
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Boolean +/
+   If Not %This.DataRowExists(&ctx) Then
+      &res.Err(&ctx.RecordIndex, "UW_ACAD_HIST_PERS saved, but no EXT_ACAD_DATA row exists for career " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | ". Check that EXT_CAREER and EXT_DATA_NBR are on the CI's EXT_ACAD_DATA collection (README.md, CI gaps). Courses, degrees and CCM were not loaded for this school.");
+      Return False;
+   End-If;
+
+   &res.Info(&ctx.RecordIndex, "Academic data row saved (not committed yet): " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | " / data nbr " | &ctx.ExtDataNbr | ".");
+   Return True;
+end-method;
+
+method DataRowExists
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Boolean +/
+   /* Sees this run's own uncommitted rows, so it reflects what will be
+      committed if the run ends now. */
+   Local string &found = "";
+
+   SQLExec("SELECT 'Y' FROM PS_EXT_ACAD_DATA WHERE EMPLID = :1 AND EXT_ORG_ID = :2 AND EXT_CAREER = :3 AND EXT_DATA_NBR = :4", &ctx.Emplid, &ctx.ExtOrgId, &ctx.ExtCareer, &ctx.ExtDataNbr, &found);
+   Return (&found = "Y");
+end-method;

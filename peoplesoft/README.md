@@ -236,3 +236,10 @@ inside a schema-mapped class. See `Test:Money`, which serializes to
   rowset.
 * For component-buffer rowsets, set `Records.ClearRowsetFirst = False` if
   you don't want the scroll flushed before it's loaded.
+
+## UW_PESC:Utilities:UW_PESC_LOAD — PESC transcript loader
+
+[`UW_PESC/Utilities/UW_PESC_LOAD/`](UW_PESC/Utilities/UW_PESC_LOAD/README.md) is a subpackage nested under `UW_PESC:Utilities`. It loads a
+deserialized PESC College Transcript into External Education
+(UW_ACAD_HIST_PERS) and Manual Transfer Credit (UW_TRNS_CRSE_MNL) through
+component interfaces.

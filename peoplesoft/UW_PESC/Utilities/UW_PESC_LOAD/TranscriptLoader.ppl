@@ -1,0 +1,774 @@
+/* ===========================================================================
+ * UW_PESC:Utilities:UW_PESC_LOAD:TranscriptLoader
+ *
+ * Entry point. Takes a deserialized UW_PESC:CollegeTranscriptType and an
+ * EMPLID and loads each AcademicRecord into External Education
+ * (UW_ACAD_HIST_PERS), then into Manual Transfer Credit
+ * (UW_TRNS_CRSE_MNL).
+ *
+ *    import UW_PESC:Utilities:UW_PESC_LOAD:Config;
+ *    import UW_PESC:Utilities:UW_PESC_LOAD:TranscriptLoader;
+ *    import UW_PESC:Utilities:UW_PESC_LOAD:LoadResult;
+ *
+ *    Local UW_PESC:Utilities:UW_PESC_LOAD:TranscriptLoader &loader =
+ *          create UW_PESC:Utilities:UW_PESC_LOAD:TranscriptLoader(create UW_PESC:Utilities:UW_PESC_LOAD:Config());
+ *    Local UW_PESC:Utilities:UW_PESC_LOAD:LoadResult &r = &loader.Load(&transcript, &emplid);
+ *
+ * Each AcademicRecord is processed on its own. A school whose crosswalks
+ * or CI saves fail is logged and skipped, and the rest still load.
+ *
+ * Pass "" for &emplid to use Person/RecipientAssignedID when it names an
+ * existing EMPLID. Otherwise run your Search/Match first and pass the
+ * result.
+ * ========================================================================= */
+import UW_PESC:CollegeTranscriptType;
+import UW_PESC:StudentType;
+import UW_PESC:PersonType;
+import UW_PESC:AcademicRecordType;
+import UW_PESC:AcademicSummaryFType;
+import UW_PESC:SchoolType;
+import UW_PESC:OrganizationType;
+import UW_PESC:AcademicSessionType;
+import UW_PESC:AcademicSessionDetailType;
+import UW_PESC:AcademicAwardType;
+import UW_PESC:CourseType;
+import UW_PESC:Utilities:UW_PESC_LOAD:Config;
+import UW_PESC:Utilities:UW_PESC_LOAD:StudentMatcher;
+import UW_PESC:Utilities:UW_PESC_LOAD:Modules;
+import UW_PESC:Utilities:UW_PESC_LOAD:Check;
+import UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk;
+import UW_PESC:Utilities:UW_PESC_LOAD:LoadResult;
+import UW_PESC:Utilities:UW_PESC_LOAD:RecordContext;
+import UW_PESC:Utilities:UW_PESC_LOAD:CourseItem;
+import UW_PESC:Utilities:UW_PESC_LOAD:ExtEducationLoader;
+import UW_PESC:Utilities:UW_PESC_LOAD:TransferCreditLoader;
+
+class TranscriptLoader
+   method TranscriptLoader(&settings As UW_PESC:Utilities:UW_PESC_LOAD:Config);
+
+   property UW_PESC:Utilities:UW_PESC_LOAD:Config Config;
+   property UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk Crosswalk;
+
+   method Load(&transcript As UW_PESC:CollegeTranscriptType, &emplid As string) Returns UW_PESC:Utilities:UW_PESC_LOAD:LoadResult;
+   method ResolveEmplid(&person As UW_PESC:PersonType) Returns string;
+
+private
+   instance UW_PESC:Utilities:UW_PESC_LOAD:LoadResult &res;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Check &chk;
+
+   method BuildContext(&index As integer, &acadRec As UW_PESC:AcademicRecordType, &transcript As UW_PESC:CollegeTranscriptType, &emplid As string) Returns UW_PESC:Utilities:UW_PESC_LOAD:RecordContext;
+   method ResolveExtOrg(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &acadRec As UW_PESC:AcademicRecordType, &transcript As UW_PESC:CollegeTranscriptType) Returns boolean;
+   method TryExtOrg(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &orgId As string, &name As string, &source As string) Returns boolean;
+   method AddCourses(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &courses As array of UW_PESC:CourseType, &detail As UW_PESC:AcademicSessionDetailType);
+   method MakeCourseItem(&course As UW_PESC:CourseType, &detail As UW_PESC:AcademicSessionDetailType) Returns UW_PESC:Utilities:UW_PESC_LOAD:CourseItem;
+   method AddAwards(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &awards As array of UW_PESC:AcademicAwardType);
+   method WidenDates(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &begin As date, &end As date);
+   method IsDuplicate(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
+   method NextDataNbr(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns number;
+   method ResolveModules() Returns UW_PESC:Utilities:UW_PESC_LOAD:Modules;
+   method IsDuplicateModel(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
+   method LogDryRun(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method FindMatch(&contexts As array of any, &ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns integer;
+   method MergeInto(&target As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, &src As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method ParseDate(&text As string) Returns date;
+   method Month2(&d As date) Returns string;
+end-class;
+
+method TranscriptLoader
+   /+ &settings as UW_PESC:Utilities:UW_PESC_LOAD:Config +/
+   %This.Config = &settings;
+   %This.Crosswalk = create UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk();
+   &chk = create UW_PESC:Utilities:UW_PESC_LOAD:Check();
+end-method;
+
+method Load
+   /+ &transcript as UW_PESC:CollegeTranscriptType, +/
+   /+ &emplid as String +/
+   /+ Returns UW_PESC:Utilities:UW_PESC_LOAD:LoadResult +/
+   Local UW_PESC:StudentType &student;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:RecordContext &ctx;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:ExtEducationLoader &extEd;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:TransferCreditLoader &trns;
+   Local string &id = &emplid;
+   Local string &found = "";
+   Local boolean &trnsSaved, &dup;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:Modules &mods;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:RecordContext &target;
+   Local array of any &contexts = CreateArrayAny();
+   Local integer &at, &n;
+   Local integer &i;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:StudentMatcher &matcher;
+   Local array of string &matches;
+
+   &res = create UW_PESC:Utilities:UW_PESC_LOAD:LoadResult();
+   &extEd = create UW_PESC:Utilities:UW_PESC_LOAD:ExtEducationLoader(%This.Config, %This.Crosswalk, &res);
+   &trns = create UW_PESC:Utilities:UW_PESC_LOAD:TransferCreditLoader(%This.Config, %This.Crosswalk, &res);
+
+   If &transcript = Null Then
+      &res.Err(0, "No transcript object.");
+      Return &res;
+   End-If;
+   If &transcript.Student = Null Then
+      &res.Err(0, "Transcript has no Student.");
+      Return &res;
+   End-If;
+   If &transcript.Student.Len = 0 Then
+      &res.Err(0, "Transcript has no Student.");
+      Return &res;
+   End-If;
+   If &transcript.Student.Len > 1 Then
+      &res.Warn(0, "Transcript has " | &transcript.Student.Len | " Student elements; only the first is loaded.");
+   End-If;
+   &student = &transcript.Student [1];
+
+   /* ---- who is it: passed in, RecipientAssignedID, then Search/Match ---- */
+   If All(&id) Then
+      &res.MatchStatus = "PASSED";
+   Else
+      &id = %This.ResolveEmplid(&student.Person);
+      If All(&id) Then
+         &res.MatchStatus = "RECIPIENTID";
+      End-If;
+   End-If;
+   If None(&id) And
+         %This.Config.UseSearchMatch Then
+      &matcher = create UW_PESC:Utilities:UW_PESC_LOAD:StudentMatcher(%This.Config, %This.Crosswalk, &res);
+      &matches = &matcher.Match(&student.Person);
+      &res.MatchStatus = &matcher.MatchStatus;
+      &res.MatchedEmplids = &matches.Join(",", "", "");
+      If &matches.Len = 1 Then
+         &id = &matches [1];
+      Else
+         If &matches.Len > 1 Then
+            &res.Err(0, "Search/Match found " | &matches.Len | " possible students (" | &res.MatchedEmplids | "); nothing loaded. Pick the right EMPLID and load the file with it.");
+            Return &res;
+         End-If;
+      End-If;
+   End-If;
+   If None(&id) Then
+      &res.Err(0, "No EMPLID: none was passed, Person/RecipientAssignedID doesn't match, and Search/Match found no one. Nothing loaded.");
+      Return &res;
+   End-If;
+   &res.Emplid = &id;
+   SQLExec("SELECT 'Y' FROM PS_PERSON WHERE EMPLID = :1", &id, &found);
+   If &found <> "Y" Then
+      &res.Err(0, "EMPLID " | &id | " doesn't exist in PS_PERSON.");
+      Return &res;
+   End-If;
+
+   If &student.AcademicRecord = Null Then
+      &res.Warn(0, "Student has no AcademicRecord; nothing to load.");
+      Return &res;
+   End-If;
+
+   &mods = %This.ResolveModules();
+   &res.Info(0, "Institution " | %This.Config.Institution | " modules: " | &mods.ToText() | ".");
+
+   /* Pass 1: resolve every AcademicRecord. Records for the same school
+      and career are merged, because some senders (Parchment, for one)
+      split one transcript into records by summary type: "All", then
+      "SenderOnly" courses, then "TransferOnly" courses. */
+   For &i = 1 To &student.AcademicRecord.Len
+      &ctx = %This.BuildContext(&i, &student.AcademicRecord [&i], &transcript, &id);
+      If Not &ctx.Skip Then
+         &at = %This.FindMatch(&contexts, &ctx);
+         If &at > 0 Then
+            &target = &contexts [&at];
+            %This.MergeInto(&target, &ctx);
+         Else
+            &contexts.Push(&ctx);
+         End-If;
+      End-If;
+   End-For;
+
+   /* Pass 2: load each school/career once */
+   For &n = 1 To &contexts.Len
+      &ctx = &contexts [&n];
+      &i = &ctx.RecordIndex;
+
+      If Not &mods.AnySelected() Then
+         %This.LogDryRun(&ctx);
+      Else
+         /* duplicate check: by transcript date when External Education
+            is loaded, otherwise by an existing Manual model */
+         &dup = False;
+         If %This.Config.SkipDuplicateTranscripts Then
+            If &mods.ExtData Then
+               If %This.IsDuplicate(&ctx) Then
+                  &dup = True;
+                  &res.Warn(&i, "A transcript dated " | &ctx.TranscriptDt | " is already on file for " | &ctx.ExtOrgId | " / " | &ctx.ExtCareer | "; record(s) " | &ctx.RecordLabel | " skipped.");
+               End-If;
+            Else
+               If %This.IsDuplicateModel(&ctx) Then
+                  &dup = True;
+                  &res.Warn(&i, "A Course Credits - Manual model already exists for " | &ctx.ExtOrgId | " / " | &ctx.AcadCareer | "; record(s) " | &ctx.RecordLabel | " skipped.");
+               End-If;
+            End-If;
+         End-If;
+
+         If Not &dup Then
+            &ctx.ExtEdSaved = True;
+            If &mods.ExtData Then
+               &ctx.ExtDataNbr = %This.NextDataNbr(&ctx);
+               &ctx.ExtEdSaved = &extEd.Load(&ctx, &mods);
+            End-If;
+
+            /* CCM runs only if External Education (when selected) saved */
+            If &ctx.ExtEdSaved Then
+               &res.RecordsLoaded = &res.RecordsLoaded + 1;
+
+               /* Commit External Education first, so a CCM failure can't
+                  roll it back. */
+               If %This.Config.CommitEachRecord And
+                     &mods.ExtData Then
+                  CommitWork();
+                  &res.Info(&i, "Committed External Education for record(s) " | &ctx.RecordLabel | ".");
+               End-If;
+
+               If &mods.ManualCredit Then
+                  /* outcome is already logged in &res */
+                  &trnsSaved = &trns.Load(&ctx);
+                  If %This.Config.CommitEachRecord Then
+                     CommitWork();
+                     If &trnsSaved Then
+                        &res.Info(&i, "Committed Course Credits - Manual for record(s) " | &ctx.RecordLabel | ".");
+                     End-If;
+                  End-If;
+               End-If;
+            End-If;
+         End-If;
+      End-If;
+   End-For;
+
+   Return &res;
+end-method;
+
+method ResolveEmplid
+   /+ &person as UW_PESC:PersonType +/
+   /+ Returns String +/
+   Local string &found = "";
+
+   If &person = Null Then
+      Return "";
+   End-If;
+   If &chk.IsBlank(&person.RecipientAssignedID) Then
+      Return "";
+   End-If;
+
+   SQLExec("SELECT EMPLID FROM PS_PERSON WHERE EMPLID = :1", &person.RecipientAssignedID, &found);
+   Return RTrim(&found);
+end-method;
+
+method BuildContext
+   /+ &index as Integer, +/
+   /+ &acadRec as UW_PESC:AcademicRecordType, +/
+   /+ &transcript as UW_PESC:CollegeTranscriptType, +/
+   /+ &emplid as String +/
+   /+ Returns UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   Local UW_PESC:Utilities:UW_PESC_LOAD:RecordContext &ctx = create UW_PESC:Utilities:UW_PESC_LOAD:RecordContext(&index, &acadRec);
+   Local UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk &xw = %This.Crosswalk;
+   Local UW_PESC:AcademicSessionType &sess;
+   Local UW_PESC:AcademicSessionType &latest;
+   Local UW_PESC:AcademicSummaryFType &summ;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &first;
+   Local string &levelCode = "";
+   Local integer &i;
+
+   &ctx.Emplid = &emplid;
+
+   /* ---- school ---- */
+   If Not %This.ResolveExtOrg(&ctx, &acadRec, &transcript) Then
+      &ctx.Skip = True;
+      Return &ctx;
+   End-If;
+
+   /* ---- record-level summaries; crosswalk SKIP_RECORD can drop a whole
+      record by summary type (e.g. TRANSFERONLY: courses the sender
+      accepted from other schools) ---- */
+   If &acadRec.AcademicSummary <> Null Then
+      For &i = 1 To &acadRec.AcademicSummary.Len
+         &summ = &acadRec.AcademicSummary [&i];
+         &ctx.Summaries.Push(&summ);
+         If %This.Crosswalk.Lookup("SKIP_RECORD", &summ.AcademicSummaryType) = "Y" Then
+            &res.Info(&index, "Skipped: summary type " | &summ.AcademicSummaryType | " is set to SKIP_RECORD.");
+            &ctx.Skip = True;
+         End-If;
+      End-For;
+      If &ctx.Skip Then
+         Return &ctx;
+      End-If;
+   End-If;
+
+   /* ---- transcript header ---- */
+   &ctx.TranscriptDt = %Date;
+   If &transcript.TransmissionData <> Null Then
+      If &chk.IsSet(&transcript.TransmissionData.CreatedDateTime) Then
+         &ctx.TranscriptDt = %This.ParseDate(&transcript.TransmissionData.CreatedDateTime);
+      End-If;
+      &ctx.TranscriptType = &xw.Lookup("TRANSCRIPT_TYPE", &transcript.TransmissionData.DocumentOfficialCode);
+   End-If;
+
+   /* ---- courses (session-level, then sessionless) and awards ---- */
+   If &acadRec.AcademicSession <> Null Then
+      For &i = 1 To &acadRec.AcademicSession.Len
+         &sess = &acadRec.AcademicSession [&i];
+         %This.AddCourses(&ctx, &sess.Course, &sess.AcademicSessionDetail);
+         %This.AddAwards(&ctx, &sess.AcademicAward);
+
+         If &sess.AcademicSessionDetail <> Null Then
+            %This.WidenDates(&ctx, &sess.AcademicSessionDetail.SessionBeginDate, &sess.AcademicSessionDetail.SessionEndDate);
+
+            /* the "as of" term is the session that starts last */
+            If &latest = Null Then
+               &latest = &sess;
+            Else
+               If &chk.IsSet(&sess.AcademicSessionDetail.SessionBeginDate) Then
+                  If &chk.IsBlank(&latest.AcademicSessionDetail.SessionBeginDate) Then
+                     &latest = &sess;
+                  Else
+                     If &sess.AcademicSessionDetail.SessionBeginDate > &latest.AcademicSessionDetail.SessionBeginDate Then
+                        &latest = &sess;
+                     End-If;
+                  End-If;
+               End-If;
+            End-If;
+         End-If;
+
+         If None(&levelCode) And
+               &sess.StudentLevel <> Null Then
+            &levelCode = &sess.StudentLevel.StudentLevelCode;
+         End-If;
+      End-For;
+   End-If;
+   %This.AddCourses(&ctx, &acadRec.Course, Null);
+   %This.AddAwards(&ctx, &acadRec.AcademicAward);
+
+   If &latest <> Null Then
+      &first = %This.MakeCourseItem(Null, &latest.AcademicSessionDetail);
+      &ctx.AsOfTermYear = &first.TermYear;
+      &ctx.AsOfExtTermType = &first.ExtTermType;
+      &ctx.AsOfExtTerm = &first.ExtTerm;
+   End-If;
+
+   /* ---- careers and level ---- */
+   If &acadRec.StudentLevel <> Null Then
+      &levelCode = &acadRec.StudentLevel.StudentLevelCode;
+   End-If;
+   &ctx.ExtCareer = &xw.Lookup("EXT_CAREER", &levelCode);
+   &ctx.ExtAcadLevel = &xw.Lookup("EXT_ACAD_LEVEL", &levelCode);
+
+   If &chk.IsBlank(&ctx.ExtCareer) And
+         &ctx.Courses.Len > 0 Then
+      &first = &ctx.Courses [1];
+      &ctx.ExtCareer = &xw.Lookup("EXT_CAREER", &first.Course.CourseCreditLevel);
+   End-If;
+   If &chk.IsBlank(&ctx.ExtCareer) Then
+      &ctx.ExtCareer = %This.Config.DefaultExtCareer;
+      &res.Warn(&index, "StudentLevel '" | &levelCode | "' has no EXT_CAREER crosswalk; using default " | &ctx.ExtCareer | ".");
+   End-If;
+
+   &ctx.AcadCareer = &xw.Lookup("ACAD_CAREER", &ctx.ExtCareer);
+   If &chk.IsBlank(&ctx.AcadCareer) Then
+      &ctx.AcadCareer = %This.Config.DefaultAcadCareer;
+   End-If;
+
+   /* ---- unit type: from the first course that has one ---- */
+   For &i = 1 To &ctx.Courses.Len
+      &first = &ctx.Courses [&i];
+      If &chk.IsBlank(&ctx.UnitType) And
+            &chk.IsSet(&first.UnitType) Then
+         &ctx.UnitType = &first.UnitType;
+      End-If;
+   End-For;
+
+   Return &ctx;
+end-method;
+
+method ResolveExtOrg
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &acadRec as UW_PESC:AcademicRecordType, +/
+   /+ &transcript as UW_PESC:CollegeTranscriptType +/
+   /+ Returns Boolean +/
+   /* The school can sit in three places. The first one that maps wins:
+         1. AcademicRecord/School
+         2. AcademicSession/School, sessions in file order
+         3. TransmissionData/Source/Organization (the sender), last resort
+      Sets ExtOrgId, ExtOrgSource and SchoolName on &ctx. */
+   Local UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk &xw = %This.Crosswalk;
+   Local UW_PESC:SchoolType &school;
+   Local UW_PESC:OrganizationType &srcOrg;
+   Local string &orgId, &name, &other;
+   Local string &tried = "";
+   Local boolean &found = False;
+   Local integer &i;
+   Local integer &idx = &ctx.RecordIndex;
+
+   /* 1. the record's own school */
+   &school = &acadRec.School;
+   If &school <> Null Then
+      &name = &school.OrganizationName;
+      &tried = &tried | " AcademicRecord/School '" | &name | "';";
+      &found = %This.TryExtOrg(&ctx, &xw.ExtOrgId(&school), &name, "AcademicRecord/School");
+   End-If;
+
+   /* 2. a session's school */
+   If Not &found And
+         &acadRec.AcademicSession <> Null Then
+      For &i = 1 To &acadRec.AcademicSession.Len
+         If Not &found Then
+            &school = &acadRec.AcademicSession [&i].School;
+            If &school <> Null Then
+               &name = &school.OrganizationName;
+               &tried = &tried | " AcademicSession " | &i | "/School '" | &name | "';";
+               &found = %This.TryExtOrg(&ctx, &xw.ExtOrgId(&school), &name, "AcademicSession " | &i | "/School");
+            End-If;
+         End-If;
+      End-For;
+   End-If;
+
+   /* 3. the sending organization */
+   If Not &found And
+         &transcript.TransmissionData <> Null Then
+      If &transcript.TransmissionData.Source <> Null Then
+         &srcOrg = &transcript.TransmissionData.Source.Organization;
+         If &srcOrg <> Null Then
+            &orgId = &xw.ExtOrgIdForOrg(&srcOrg);
+            &name = "";
+            If &srcOrg.OrganizationName <> Null Then
+               If &srcOrg.OrganizationName.Len > 0 Then
+                  &name = &srcOrg.OrganizationName [1];
+               End-If;
+            End-If;
+            &tried = &tried | " TransmissionData/Source/Organization '" | &name | "';";
+            &found = %This.TryExtOrg(&ctx, &orgId, &name, "TransmissionData/Source/Organization");
+         End-If;
+      End-If;
+   End-If;
+
+   If Not &found Then
+      If None(&tried) Then
+         &tried = " no School or Source/Organization element at all;";
+      End-If;
+      &res.Err(&idx, "No EXT_ORG crosswalk for any school on this record. Checked:" | &tried | " add an EXT_ORG row for one of their codes (ATP, CEEBACT, FICE, ACT, IPEDS, OPEID, LOCAL, NAME). Record skipped.");
+      Return False;
+   End-If;
+
+   /* A session at a different school (e.g. a summer elsewhere) still loads
+      under this record's org. Say so rather than splitting it silently. */
+   If &acadRec.AcademicSession <> Null Then
+      For &i = 1 To &acadRec.AcademicSession.Len
+         &school = &acadRec.AcademicSession [&i].School;
+         If &school <> Null Then
+            &other = &xw.ExtOrgId(&school);
+            If All(&other) And
+                  &other <> &ctx.ExtOrgId Then
+               &res.Warn(&idx, "AcademicSession " | &i | " names a different school (" | &other | "); its courses are loaded under " | &ctx.ExtOrgId | ".");
+            End-If;
+         End-If;
+      End-For;
+   End-If;
+   Return True;
+end-method;
+
+method TryExtOrg
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &orgId as String, +/
+   /+ &name as String, +/
+   /+ &source as String +/
+   /+ Returns Boolean +/
+   /* Keeps the first school name seen for messages, even if it didn't map. */
+   If &chk.IsBlank(&ctx.SchoolName) Then
+      &ctx.SchoolName = &name;
+   End-If;
+   If None(&orgId) Then
+      Return False;
+   End-If;
+
+   &ctx.ExtOrgId = &orgId;
+   &ctx.ExtOrgSource = &source;
+   &ctx.SchoolName = &name;
+   If &source <> "AcademicRecord/School" Then
+      &res.Info(&ctx.RecordIndex, "EXT_ORG_ID " | &orgId | " taken from " | &source | ".");
+   End-If;
+   Return True;
+end-method;
+
+method AddCourses
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &courses as Array of UW_PESC:CourseType, +/
+   /+ &detail as UW_PESC:AcademicSessionDetailType +/
+   Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &item;
+   Local integer &i;
+
+   If &courses = Null Then
+      Return;
+   End-If;
+
+   For &i = 1 To &courses.Len
+      &item = %This.MakeCourseItem(&courses [&i], &detail);
+      &ctx.Courses.Push(&item);
+      %This.WidenDates(&ctx, &item.BeginDt, &item.EndDt);
+   End-For;
+end-method;
+
+method MakeCourseItem
+   /+ &course as UW_PESC:CourseType, +/
+   /+ &detail as UW_PESC:AcademicSessionDetailType +/
+   /+ Returns UW_PESC:Utilities:UW_PESC_LOAD:CourseItem +/
+   /* Works out term, dates, unit type and skip reasons. &course may be
+      Null (used to work out the "as of" term from a session alone). */
+   Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &item = create UW_PESC:Utilities:UW_PESC_LOAD:CourseItem(&course);
+   Local UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk &xw = %This.Crosswalk;
+   Local string &designator = "";
+   Local string &sessionType = "";
+   Local string &month = "";
+   Local date &anchor;
+
+   If &detail <> Null Then
+      &designator = &detail.SessionDesignator;
+      &sessionType = &detail.SessionType;
+      &item.BeginDt = &detail.SessionBeginDate;
+      &item.EndDt = &detail.SessionEndDate;
+   End-If;
+   If &course <> Null Then
+      If &chk.IsSet(&course.CourseBeginDate) Then
+         &item.BeginDt = &course.CourseBeginDate;
+      End-If;
+      If &chk.IsSet(&course.CourseEndDate) Then
+         &item.EndDt = &course.CourseEndDate;
+      End-If;
+   End-If;
+
+   /* year and month: SessionDesignator "YYYY-MM" first, then dates */
+   If Len(&designator) >= 7 Then
+      If IsNumber(Left(&designator, 4)) And
+            IsNumber(Substring(&designator, 6, 2)) Then
+         &item.TermYear = Value(Left(&designator, 4));
+         &month = Substring(&designator, 6, 2);
+      End-If;
+   End-If;
+   If &item.TermYear = 0 Then
+      &anchor = &item.BeginDt;
+      If None(&anchor) Then
+         &anchor = &item.EndDt;
+      End-If;
+      If All(&anchor) Then
+         &item.TermYear = Year(&anchor);
+         &month = %This.Month2(&anchor);
+      End-If;
+   End-If;
+
+   &item.ExtTermType = &xw.Lookup("EXT_TERM_TYPE", &sessionType);
+   If All(&month) Then
+      &item.ExtTerm = &xw.LookupFirst("EXT_TERM", CreateArray(&sessionType | ":" | &month, "*:" | &month));
+   End-If;
+
+   If &course = Null Then
+      Return &item;
+   End-If;
+
+   &item.UnitType = &xw.Lookup("UNT_TYPE", &course.CourseCreditUnits);
+
+   /* ---- skip rules ---- */
+   If Upper(&course.CourseCreditBasis) = "TRANSFERCREDIT" Then
+      &item.SkipReason = "credit the sending school accepted from another school (CourseCreditBasis TransferCredit)";
+   Else
+      If &chk.IsBlank(&course.CourseSubjectAbbreviation) Or
+            &chk.IsBlank(&course.CourseNumber) Then
+         &item.SkipReason = "no CourseSubjectAbbreviation or CourseNumber";
+      End-If;
+   End-If;
+
+   If &chk.IsBlank(&item.SkipReason) Then
+      If &xw.Lookup("SKIP_GRADE_STATUS", &course.CourseAcademicGradeStatusCode) = "Y" Then
+         &item.NoTransferReason = "grade status " | &course.CourseAcademicGradeStatusCode;
+      Else
+         If &xw.Lookup("SKIP_CREDIT_BASIS", &course.CourseCreditBasis) = "Y" Then
+            &item.NoTransferReason = "credit basis " | &course.CourseCreditBasis;
+         End-If;
+      End-If;
+   End-If;
+
+   Return &item;
+end-method;
+
+method AddAwards
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &awards as Array of UW_PESC:AcademicAwardType +/
+   Local integer &i;
+
+   If &awards = Null Then
+      Return;
+   End-If;
+   For &i = 1 To &awards.Len
+      &ctx.Awards.Push(&awards [&i]);
+   End-For;
+end-method;
+
+method WidenDates
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &begin as Date, +/
+   /+ &end as Date +/
+   If All(&begin) Then
+      If &chk.IsBlank(&ctx.FromDt) Then
+         &ctx.FromDt = &begin;
+      Else
+         If &begin < &ctx.FromDt Then
+            &ctx.FromDt = &begin;
+         End-If;
+      End-If;
+   End-If;
+   If All(&end) Then
+      If &chk.IsBlank(&ctx.ToDt) Then
+         &ctx.ToDt = &end;
+      Else
+         If &end > &ctx.ToDt Then
+            &ctx.ToDt = &end;
+         End-If;
+      End-If;
+   End-If;
+end-method;
+
+method IsDuplicate
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Boolean +/
+   Local string &found = "";
+
+   SQLExec("SELECT 'Y' FROM PS_EXT_ACAD_DATA WHERE EMPLID = :1 AND EXT_ORG_ID = :2 AND EXT_CAREER = :3 AND TRANSCRIPT_DT = %DateIn(:4)", &ctx.Emplid, &ctx.ExtOrgId, &ctx.ExtCareer, &ctx.TranscriptDt, &found);
+   Return (&found = "Y");
+end-method;
+
+method NextDataNbr
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Number +/
+   Local number &maxNbr = 0;
+
+   SQLExec("SELECT MAX(EXT_DATA_NBR) FROM PS_EXT_ACAD_DATA WHERE EMPLID = :1 AND EXT_ORG_ID = :2 AND EXT_CAREER = :3", &ctx.Emplid, &ctx.ExtOrgId, &ctx.ExtCareer, &maxNbr);
+   Return &maxNbr + 1;
+end-method;
+
+method FindMatch
+   /+ &contexts as Array of Any, +/
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Integer +/
+   Local UW_PESC:Utilities:UW_PESC_LOAD:RecordContext &other;
+   Local integer &i;
+
+   For &i = 1 To &contexts.Len
+      &other = &contexts [&i];
+      If &other.ExtOrgId = &ctx.ExtOrgId And
+            &other.ExtCareer = &ctx.ExtCareer Then
+         Return &i;
+      End-If;
+   End-For;
+   Return 0;
+end-method;
+
+method MergeInto
+   /+ &target as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext, +/
+   /+ &src as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /* Adds &src's courses, awards and summaries to &target, widens the
+      attendance dates and keeps the later "as of" term. */
+   Local integer &i;
+   Local date &from, &to;
+   Local string &v;
+
+   For &i = 1 To &src.Courses.Len
+      &target.Courses.Push(&src.Courses [&i]);
+   End-For;
+   For &i = 1 To &src.Awards.Len
+      &target.Awards.Push(&src.Awards [&i]);
+   End-For;
+   For &i = 1 To &src.Summaries.Len
+      &target.Summaries.Push(&src.Summaries [&i]);
+   End-For;
+
+   &from = &src.FromDt;
+   &to = &src.ToDt;
+   %This.WidenDates(&target, &from, &to);
+
+   If &src.AsOfTermYear > &target.AsOfTermYear Then
+      &target.AsOfTermYear = &src.AsOfTermYear;
+      &target.AsOfExtTermType = &src.AsOfExtTermType;
+      &target.AsOfExtTerm = &src.AsOfExtTerm;
+   End-If;
+
+   &v = &target.UnitType;
+   If None(&v) Then
+      &target.UnitType = &src.UnitType;
+   End-If;
+   &v = &target.ExtAcadLevel;
+   If None(&v) Then
+      &target.ExtAcadLevel = &src.ExtAcadLevel;
+   End-If;
+
+   &target.RecordLabel = &target.RecordLabel | "+" | &src.RecordLabel;
+   &res.Info(&src.RecordIndex, "Same school and career as AcademicRecord " | &target.RecordIndex | " (" | &target.ExtOrgId | " / " | &target.ExtCareer | "); loaded together with it.");
+end-method;
+
+method ResolveModules
+   /+ Returns UW_PESC:Utilities:UW_PESC_LOAD:Modules +/
+   /* Config.ModuleList wins. Otherwise crosswalk MODULES keyed by institution,
+      so each school's choice lives in the table. With neither, load all of
+      External Education. */
+   Local UW_PESC:Utilities:UW_PESC_LOAD:Modules &mods;
+   Local string &list = %This.Config.ModuleList;
+   Local string &source = "Config.ModuleList";
+   Local string &unknown;
+
+   If None(&list) Then
+      &list = %This.Crosswalk.Lookup("MODULES", %This.Config.Institution);
+      &source = "crosswalk MODULES";
+   End-If;
+   If None(&list) Then
+      &list = "EXTDATA,EXTDEG,EXTCRSE";
+      &source = "default";
+   End-If;
+
+   &mods = create UW_PESC:Utilities:UW_PESC_LOAD:Modules(&list);
+   &unknown = &mods.Unknown;
+   If All(&unknown) Then
+      &res.Warn(0, "Unknown module name(s) in " | &source | " '" | &list | "' ignored:" | &unknown | ".");
+   End-If;
+   Return &mods;
+end-method;
+
+method IsDuplicateModel
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Boolean +/
+   /* Used when only CCM is loaded, so there's no transcript date on file to
+      compare. Any existing model for this school counts as a duplicate. */
+   Local string &found = "";
+
+   SQLExec("SELECT 'Y' FROM PS_TRNS_CRSE_SCH WHERE EMPLID = :1 AND ACAD_CAREER = :2 AND INSTITUTION = :3 AND EXT_ORG_ID = :4", &ctx.Emplid, &ctx.AcadCareer, %This.Config.Institution, &ctx.ExtOrgId, &found);
+   Return (&found = "Y");
+end-method;
+
+method LogDryRun
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /* No modules selected: report what would load, save nothing. */
+   &res.Info(&ctx.RecordIndex, "Dry run: " | &ctx.ExtOrgId | " (" | &ctx.SchoolName | "), career " | &ctx.ExtCareer | " -> " | &ctx.AcadCareer | ", " | &ctx.Courses.Len | " course(s), " | &ctx.Awards.Len | " award(s), transcript date " | &ctx.TranscriptDt | ". Nothing saved.");
+end-method;
+
+method ParseDate
+   /+ &text as String +/
+   /+ Returns Date +/
+   /* PESC dateTime: "YYYY-MM-DDThh:mm:ss" with an optional offset. Only
+      the date part is used. Anything unreadable falls back to today. */
+   Local string &d = Left(LTrim(&text), 10);
+
+   If Len(&d) = 10 Then
+      If IsNumber(Left(&d, 4)) And
+            IsNumber(Substring(&d, 6, 2)) And
+            IsNumber(Substring(&d, 9, 2)) Then
+         Return Date3(Value(Left(&d, 4)), Value(Substring(&d, 6, 2)), Value(Substring(&d, 9, 2)));
+      End-If;
+   End-If;
+   Return %Date;
+end-method;
+
+method Month2
+   /+ &d as Date +/
+   /+ Returns String +/
+   Return Right("0" | String(Month(&d)), 2);
+end-method;

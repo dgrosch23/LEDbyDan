@@ -1,0 +1,187 @@
+/* ===========================================================================
+ * UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk
+ *
+ * Translates PESC codes into Campus Solutions values. All lookups go
+ * through one table (definition in README.md):
+ *
+ *    PS_UW_CGER_PESC_XW   UW_CGER_XWALK_TYPE + UW_CGER_PESC_VAL  -> UW_CGER_CS_VAL
+ *
+ * Course equivalencies are not looked up here. Schools either apply their
+ * PeopleSoft rules when they post, or enter equivalencies by hand.
+ *
+ * To use a different table, change only the SQL in Lookup(). PESC values
+ * are matched upper-cased, so store
+ * UW_CGER_PESC_VAL in upper case. Results are cached for the life of the
+ * instance.
+ *
+ * A lookup with no match returns "". Callers decide whether that is an
+ * error, a warning or "leave the field alone".
+ * ========================================================================= */
+import UW_PESC:SchoolType;
+import UW_PESC:OrganizationType;
+
+class Crosswalk
+   method Crosswalk();
+
+   method Lookup(&type As string, &pescValue As string) Returns string;
+   method LookupFirst(&type As string, &pescValues As array of string) Returns string;
+   method CourseGrade(&scale As string, &grade As string) Returns string;
+   method ExtOrgId(&school As UW_PESC:SchoolType) Returns string;
+   method ExtOrgIdForOrg(&org As UW_PESC:OrganizationType) Returns string;
+
+private
+   instance array of string &cacheKeys;
+   instance array of string &cacheValues;
+   method TryOrg(&qualifier As string, &code As string) Returns string;
+   method FromCodes(&atp As string, &ceebact As string, &fice As string, &act As string, &ipeds As string, &opeid As string, &localCode As string, &name As string) Returns string;
+end-class;
+
+method Crosswalk
+   &cacheKeys = CreateArrayRept("", 0);
+   &cacheValues = CreateArrayRept("", 0);
+end-method;
+
+method Lookup
+   /+ &type as String, +/
+   /+ &pescValue as String +/
+   /+ Returns String +/
+   Local string &value = Upper(LTrim(RTrim(&pescValue)));
+   Local string &key;
+   Local string &result = "";
+   Local integer &at;
+
+   If None(&value) Then
+      Return "";
+   End-If;
+
+   &key = &type | "|" | &value;
+   &at = &cacheKeys.Find(&key);
+   If &at > 0 Then
+      Return &cacheValues [&at];
+   End-If;
+
+   SQLExec("SELECT UW_CGER_CS_VAL FROM PS_UW_CGER_PESC_XW WHERE UW_CGER_XWALK_TYPE = :1 AND UW_CGER_PESC_VAL = :2", &type, &value, &result);
+   &result = RTrim(&result);
+
+   &cacheKeys.Push(&key);
+   &cacheValues.Push(&result);
+   Return &result;
+end-method;
+
+method LookupFirst
+   /+ &type as String, +/
+   /+ &pescValues as Array of String +/
+   /+ Returns String +/
+   /* Tries each value in order and returns the first match. */
+   Local string &result;
+   Local integer &i;
+
+   For &i = 1 To &pescValues.Len
+      &result = %This.Lookup(&type, &pescValues [&i]);
+      If All(&result) Then
+         Return &result;
+      End-If;
+   End-For;
+   Return "";
+end-method;
+
+method CourseGrade
+   /+ &scale as String, +/
+   /+ &grade as String +/
+   /+ Returns String +/
+   /* Crosswalk CRSE_GRADE: "<SCALE>:<GRADE>" first (e.g. "T:A*"), then the
+      grade alone. With no row the grade goes in as sent, upper-cased. */
+   Local string &mapped;
+   Local string &raw = Upper(LTrim(RTrim(&grade)));
+
+   If None(&raw) Then
+      Return "";
+   End-If;
+   &mapped = %This.LookupFirst("CRSE_GRADE", CreateArray(&scale | ":" | &raw, &raw));
+   If None(&mapped) Then
+      Return &raw;
+   End-If;
+   Return &mapped;
+end-method;
+
+method ExtOrgId
+   /+ &school as UW_PESC:SchoolType +/
+   /+ Returns String +/
+   /* School elements: AcademicRecord/School, AcademicSession/School. */
+   Local string &localCode = "";
+
+   If &school = Null Then
+      Return "";
+   End-If;
+   If &school.LocalOrganizationID <> Null Then
+      &localCode = &school.LocalOrganizationID.LocalOrganizationIDCode;
+   End-If;
+   Return %This.FromCodes(&school.ATP, &school.CEEBACT, &school.FICE, &school.ACT, &school.IPEDS, &school.OPEID, &localCode, &school.OrganizationName);
+end-method;
+
+method ExtOrgIdForOrg
+   /+ &org as UW_PESC:OrganizationType +/
+   /+ Returns String +/
+   /* Organization elements: TransmissionData/Source/Organization.
+      OrganizationName repeats here, so the first one is used. */
+   Local string &localCode = "";
+   Local string &name = "";
+
+   If &org = Null Then
+      Return "";
+   End-If;
+   If &org.LocalOrganizationID <> Null Then
+      &localCode = &org.LocalOrganizationID.LocalOrganizationIDCode;
+   End-If;
+   If &org.OrganizationName <> Null Then
+      If &org.OrganizationName.Len > 0 Then
+         &name = &org.OrganizationName [1];
+      End-If;
+   End-If;
+   Return %This.FromCodes(&org.ATP, &org.CEEBACT, &org.FICE, &org.ACT, &org.IPEDS, &org.OPEID, &localCode, &name);
+end-method;
+
+method FromCodes
+   /+ &atp as String, &ceebact as String, &fice as String, &act as String, +/
+   /+ &ipeds as String, &opeid as String, &localCode as String, &name as String +/
+   /+ Returns String +/
+   /* Crosswalk type EXT_ORG, value "<QUALIFIER>:<CODE>", e.g. "FICE:001234".
+      Codes are tried in this order. The first match wins. */
+   Local string &org;
+
+   &org = %This.TryOrg("ATP", &atp);
+   If None(&org) Then
+      &org = %This.TryOrg("CEEBACT", &ceebact);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("FICE", &fice);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("ACT", &act);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("IPEDS", &ipeds);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("OPEID", &opeid);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("LOCAL", &localCode);
+   End-If;
+   If None(&org) Then
+      &org = %This.TryOrg("NAME", &name);
+   End-If;
+   Return &org;
+end-method;
+
+method TryOrg
+   /+ &qualifier as String, +/
+   /+ &code as String +/
+   /+ Returns String +/
+   Local string &trimmed = LTrim(RTrim(&code));
+
+   If None(&trimmed) Then
+      Return "";
+   End-If;
+   Return %This.Lookup("EXT_ORG", &qualifier | ":" | &trimmed);
+end-method;

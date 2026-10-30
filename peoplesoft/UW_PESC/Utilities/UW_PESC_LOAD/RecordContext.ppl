@@ -1,0 +1,79 @@
+/* ===========================================================================
+ * UW_PESC:Utilities:UW_PESC_LOAD:RecordContext
+ *
+ * Everything worked out for one PESC AcademicRecord before any CI is
+ * touched: the student, the school, careers, data number, the "as of"
+ * term and the course list. ExtEducationLoader and TransferCreditLoader
+ * both read it, so the two components always agree.
+ *
+ * Courses holds UW_PESC:Utilities:UW_PESC_LOAD:CourseItem objects, Awards
+ * holds UW_PESC:AcademicAwardType and Summaries holds
+ * UW_PESC:AcademicSummaryFType. All are declared array of any to avoid
+ * typed object-array assignment.
+ *
+ * Several AcademicRecords that resolve to the same school and career are
+ * merged into one context (see TranscriptLoader.MergeInto), so they share
+ * one External Education data row. RecordLabel lists them, e.g. "1+3".
+ * ========================================================================= */
+import UW_PESC:AcademicRecordType;
+
+class RecordContext
+   method RecordContext(&index As integer, &acadRec As UW_PESC:AcademicRecordType);
+
+   property integer RecordIndex;
+   property UW_PESC:AcademicRecordType AcademicRecord;
+   property string Emplid;
+
+   /* ---- external side (ACAD_HIST_PERS) ---- */
+   property string ExtOrgId;
+   property string SchoolName;
+   property string ExtOrgSource;
+   property string ExtCareer;
+   property number ExtDataNbr;
+   property string ExtAcadLevel;
+   property string TranscriptType;
+   property date TranscriptDt;
+   property date FromDt;
+   property date ToDt;
+   property number AsOfTermYear;
+   property string AsOfExtTermType;
+   property string AsOfExtTerm;
+   property string UnitType;
+   property array of any Courses;
+   property array of any Awards;
+   property array of any Summaries;
+   property string RecordLabel;
+
+   /* ---- your side (TRNS_CRSE_MNL) ---- */
+   property string AcadCareer;
+
+   /* ---- status ---- */
+   property boolean Skip;
+   property boolean ExtEdSaved;
+end-class;
+
+method RecordContext
+   /+ &index as Integer, +/
+   /+ &acadRec as UW_PESC:AcademicRecordType +/
+   %This.RecordIndex = &index;
+   %This.AcademicRecord = &acadRec;
+   %This.Emplid = "";
+   %This.ExtOrgId = "";
+   %This.SchoolName = "";
+   %This.ExtOrgSource = "";
+   %This.ExtCareer = "";
+   %This.ExtDataNbr = 0;
+   %This.ExtAcadLevel = "";
+   %This.TranscriptType = "";
+   %This.AsOfTermYear = 0;
+   %This.AsOfExtTermType = "";
+   %This.AsOfExtTerm = "";
+   %This.UnitType = "";
+   %This.Courses = CreateArrayAny();
+   %This.Awards = CreateArrayAny();
+   %This.Summaries = CreateArrayAny();
+   %This.RecordLabel = String(&index);
+   %This.AcadCareer = "";
+   %This.Skip = False;
+   %This.ExtEdSaved = False;
+end-method;

@@ -1,0 +1,307 @@
+/* ===========================================================================
+ * UW_PESC:Utilities:UW_PESC_LOAD:TransferCreditLoader
+ *
+ * For MANUAL-mode schools: creates one unposted Course Credits - Manual
+ * model per PESC AcademicRecord through UW_TRNS_CRSE_MNL, holding the
+ * incoming (transcript) courses only. Staff add the equivalent courses
+ * from their equivalency source and post, as they do today. Nothing here
+ * works out equivalencies.
+ *
+ * Run it only after ExtEducationLoader has saved the same record. The
+ * incoming course fields prompt against the student's external courses.
+ *
+ * CI shape (from the generated template):
+ *    root              EMPLID, ACAD_CAREER, INSTITUTION
+ *    TRNS_CRSE_SCH     one row per model; MODEL_NBR assigned by the component
+ *      TRNS_CRSE_TERM  articulation term (NOT exposed in the generated CI)
+ *        TRNS_CRSE_DTL one row per incoming course
+ *
+ * The generated CI exposes no properties on TRNS_CRSE_TERM. This class
+ * sets ARTICULATION_TERM by name. Until that property is added to the CI
+ * (README.md, "CI gaps"), every model fails with a message that says so.
+ *
+ * Models are saved unposted. MODEL_STATUS isn't exposed, so the component
+ * default applies. Evaluators review and post them online.
+ * ========================================================================= */
+import UW_PESC:CourseType;
+import UW_PESC:Utilities:UW_PESC_LOAD:Config;
+import UW_PESC:Utilities:UW_PESC_LOAD:Check;
+import UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk;
+import UW_PESC:Utilities:UW_PESC_LOAD:LoadResult;
+import UW_PESC:Utilities:UW_PESC_LOAD:RecordContext;
+import UW_PESC:Utilities:UW_PESC_LOAD:CourseItem;
+
+class TransferCreditLoader
+   method TransferCreditLoader(&config As UW_PESC:Utilities:UW_PESC_LOAD:Config, &xwalk As UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk, &result As UW_PESC:Utilities:UW_PESC_LOAD:LoadResult);
+   method Load(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns boolean;
+
+private
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Config &cfg;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk &xw;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:LoadResult &res;
+   instance UW_PESC:Utilities:UW_PESC_LOAD:Check &chk;
+
+   /* filled by ReadProgram() */
+   instance string &acadProg;
+   instance string &acadPlan;
+   instance string &admitTerm;
+
+   method ReadProgram(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext);
+   method CountEligible(&ctx As UW_PESC:Utilities:UW_PESC_LOAD:RecordContext) Returns integer;
+   method NewModelRow(&schColl As ApiObject) Returns ApiObject;
+   method FillDetail(&row As ApiObject, &item As UW_PESC:Utilities:UW_PESC_LOAD:CourseItem, &grp As integer);
+end-class;
+
+method TransferCreditLoader
+   /+ &config as UW_PESC:Utilities:UW_PESC_LOAD:Config, +/
+   /+ &xwalk as UW_PESC:Utilities:UW_PESC_LOAD:Crosswalk, +/
+   /+ &result as UW_PESC:Utilities:UW_PESC_LOAD:LoadResult +/
+   &cfg = &config;
+   &xw = &xwalk;
+   &res = &result;
+   &chk = create UW_PESC:Utilities:UW_PESC_LOAD:Check();
+end-method;
+
+method Load
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Boolean +/
+   Local ApiObject &ci, &sch, &termColl, &term, &dtlColl, &dtl;
+   Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &item;
+   Local UW_PESC:CourseType &c;
+   Local string &artTerm;
+   Local integer &i, &grp;
+   Local integer &idx = &ctx.RecordIndex;
+   Local number &modelNbr = 0;
+
+   If %This.CountEligible(&ctx) = 0 Then
+      &res.Info(&idx, "No courses to send to Course Credits - Manual; no model created.");
+      Return True;
+   End-If;
+
+   %This.ReadProgram(&ctx);
+   &artTerm = &admitTerm;
+   If None(&artTerm) Then
+      &artTerm = &cfg.DefaultArticulationTerm;
+   End-If;
+   If None(&artTerm) Then
+      &res.Warn(&idx, "No admit term found in ACAD_PROG for " | &ctx.Emplid | " / " | &ctx.AcadCareer | " and Config.DefaultArticulationTerm is blank; transfer credit not loaded.");
+      Return False;
+   End-If;
+
+   &ci = %Session.GetCompIntfc(CompIntfc.UW_TRNS_CRSE_MNL);
+   If &ci = Null Then
+      &res.AddPSMessages(&idx, "GetCompIntfc UW_TRNS_CRSE_MNL");
+      &res.Err(&idx, "Could not get component interface UW_TRNS_CRSE_MNL.");
+      Return False;
+   End-If;
+
+   &ci.InteractiveMode = &cfg.InteractiveMode;
+   &ci.GetHistoryItems = True;
+   &ci.EditHistoryItems = False;
+   &ci.EMPLID = &ctx.Emplid;
+   &ci.ACAD_CAREER = &ctx.AcadCareer;
+   &ci.INSTITUTION = &cfg.Institution;
+
+   /* Get fails when the student has no models yet; Create in that case. */
+   If Not &ci.Get() Then
+      %Session.PSMessages.DeleteAll();
+      If Not &ci.Create() Then
+         &res.AddPSMessages(&idx, "UW_TRNS_CRSE_MNL.Create");
+         &res.Err(&idx, "UW_TRNS_CRSE_MNL Get and Create both failed for " | &ctx.Emplid | " / " | &ctx.AcadCareer | " / " | &cfg.Institution | ". Does the student have this career?");
+         Return False;
+      End-If;
+   End-If;
+
+   try
+      &sch = %This.NewModelRow(&ci.TRNS_CRSE_SCH);
+
+      &sch.TRNSFR_SRC_TYPE = &cfg.TrnsfrSrcType;
+      &sch.EXT_ORG_ID = &ctx.ExtOrgId;
+      If &chk.IsSet(&cfg.DataSource) Then
+         &sch.LS_DATA_SOURCE = &cfg.DataSource;
+      End-If;
+      If &chk.IsSet(&acadProg) Then
+         &sch.ACAD_PROG = &acadProg;
+      End-If;
+      If &chk.IsSet(&acadPlan) Then
+         &sch.ACAD_PLAN = &acadPlan;
+      End-If;
+      If &chk.IsSet(&cfg.IncludeInGpa) Then
+         &sch.INCLUDE_IN_GPA = &cfg.IncludeInGpa;
+      End-If;
+
+      /* a new model comes with one blank term row */
+      &termColl = &sch.TRNS_CRSE_TERM;
+      If &termColl.Count > 0 Then
+         &term = &termColl.Item(1);
+      Else
+         &term = &termColl.InsertItem(0);
+      End-If;
+      try
+         &term.ARTICULATION_TERM = &artTerm;
+      catch Exception &noTerm
+         throw CreateException(0, 0, "UW_TRNS_CRSE_MNL has no ARTICULATION_TERM property on TRNS_CRSE_TERM. Add it to the CI (README.md, CI gaps).");
+      end-try;
+
+      &dtlColl = &term.TRNS_CRSE_DTL;
+      &grp = 0;
+      For &i = 1 To &ctx.Courses.Len
+         &item = &ctx.Courses [&i];
+         &c = &item.Course;
+
+         If &chk.IsBlank(&item.SkipReason) Then
+            If &chk.IsSet(&item.NoTransferReason) Then
+               &res.Info(&idx, "Course " | &c.CourseSubjectAbbreviation | " " | &c.CourseNumber | " not sent to transfer credit: " | &item.NoTransferReason);
+            Else
+               &grp = &grp + 1;
+               If &grp = 1 And
+                     &dtlColl.Count > 0 Then
+                  &dtl = &dtlColl.Item(1);
+               Else
+                  &dtl = &dtlColl.InsertItem(&dtlColl.Count);
+               End-If;
+               %This.FillDetail(&dtl, &item, &grp);
+            End-If;
+         End-If;
+      End-For;
+
+      If Not &ci.Save() Then
+         &res.AddPSMessages(&idx, "UW_TRNS_CRSE_MNL.Save");
+         &res.Err(&idx, "UW_TRNS_CRSE_MNL Save failed. No model was created for EXT_ORG_ID " | &ctx.ExtOrgId | ".");
+         &ci.Cancel();
+         Return False;
+      End-If;
+   catch Exception &e
+      &res.AddPSMessages(&idx, "UW_TRNS_CRSE_MNL");
+      &res.Err(&idx, "UW_TRNS_CRSE_MNL load stopped: " | &e.ToString());
+      &ci.Cancel();
+      Return False;
+   end-try;
+
+   &res.AddPSMessages(&idx, "UW_TRNS_CRSE_MNL.Save");
+   &ci.Cancel();
+
+   SQLExec("SELECT MAX(MODEL_NBR) FROM PS_TRNS_CRSE_SCH WHERE EMPLID = :1 AND ACAD_CAREER = :2 AND INSTITUTION = :3 AND EXT_ORG_ID = :4", &ctx.Emplid, &ctx.AcadCareer, &cfg.Institution, &ctx.ExtOrgId, &modelNbr);
+   &res.TransferRowsLoaded = &res.TransferRowsLoaded + &grp;
+   &res.Info(&idx, "Transfer credit model " | &modelNbr | " saved (unposted) with " | &grp | " course row(s), articulation term " | &artTerm | ".");
+   Return True;
+end-method;
+
+method ReadProgram
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /* The student's current program (latest effective row on the newest
+      career number) supplies ACAD_PROG, ADMIT_TERM and the primary plan. */
+   /* SQLExec outputs must be local variables, not instance variables */
+   Local string &prog = "";
+   Local string &plan = "";
+   Local string &term = "";
+   Local number &carNbr = 0;
+   Local date &effdt;
+   Local number &effseq = 0;
+
+   &acadProg = "";
+   &acadPlan = "";
+   &admitTerm = "";
+
+   SQLExec("SELECT A.ACAD_PROG, A.ADMIT_TERM, A.STDNT_CAR_NBR, %DateOut(A.EFFDT), A.EFFSEQ FROM PS_ACAD_PROG A WHERE A.EMPLID = :1 AND A.ACAD_CAREER = :2 AND A.INSTITUTION = :3 AND A.EFFDT = (SELECT MAX(B.EFFDT) FROM PS_ACAD_PROG B WHERE B.EMPLID = A.EMPLID AND B.ACAD_CAREER = A.ACAD_CAREER AND B.STDNT_CAR_NBR = A.STDNT_CAR_NBR AND B.EFFDT <= %CurrentDateIn) AND A.EFFSEQ = (SELECT MAX(C.EFFSEQ) FROM PS_ACAD_PROG C WHERE C.EMPLID = A.EMPLID AND C.ACAD_CAREER = A.ACAD_CAREER AND C.STDNT_CAR_NBR = A.STDNT_CAR_NBR AND C.EFFDT = A.EFFDT) ORDER BY A.STDNT_CAR_NBR DESC", &ctx.Emplid, &ctx.AcadCareer, &cfg.Institution, &prog, &term, &carNbr, &effdt, &effseq);
+
+   If None(&prog) Then
+      Return;
+   End-If;
+
+   SQLExec("SELECT ACAD_PLAN FROM PS_ACAD_PLAN WHERE EMPLID = :1 AND ACAD_CAREER = :2 AND STDNT_CAR_NBR = :3 AND EFFDT = %DateIn(:4) AND EFFSEQ = :5 ORDER BY PLAN_SEQUENCE", &ctx.Emplid, &ctx.AcadCareer, &carNbr, &effdt, &effseq, &plan);
+
+   &acadProg = RTrim(&prog);
+   &acadPlan = RTrim(&plan);
+   &admitTerm = RTrim(&term);
+end-method;
+
+method CountEligible
+   /+ &ctx as UW_PESC:Utilities:UW_PESC_LOAD:RecordContext +/
+   /+ Returns Integer +/
+   Local UW_PESC:Utilities:UW_PESC_LOAD:CourseItem &item;
+   Local integer &i, &n;
+
+   &n = 0;
+   For &i = 1 To &ctx.Courses.Len
+      &item = &ctx.Courses [&i];
+      If &chk.IsBlank(&item.SkipReason) And
+            &chk.IsBlank(&item.NoTransferReason) Then
+         &n = &n + 1;
+      End-If;
+   End-For;
+   Return &n;
+end-method;
+
+method NewModelRow
+   /+ &schColl as ApiObject +/
+   /+ Returns ApiObject +/
+   /* After Create() the collection holds one blank row. After Get() it
+      holds the student's existing models, so add a new one. */
+   Local ApiObject &row;
+
+   If &schColl.Count = 1 Then
+      &row = &schColl.Item(1);
+      If &chk.IsBlank(&row.EXT_ORG_ID) And
+            &chk.IsBlank(&row.SRC_INSTITUTION) Then
+         Return &row;
+      End-If;
+   End-If;
+   Return &schColl.InsertItem(&schColl.Count);
+end-method;
+
+method FillDetail
+   /+ &row as ApiObject, +/
+   /+ &item as UW_PESC:Utilities:UW_PESC_LOAD:CourseItem, +/
+   /+ &grp as Integer +/
+   Local UW_PESC:CourseType &c = &item.Course;
+   Local string &v;
+
+   &row.TRNSFR_EQVLNCY_GRP = &grp;
+   &row.TRNSFR_EQVLNCY_SEQ = 1;
+
+   /* incoming course: these values prompt against the EXT_COURSE rows
+      ExtEducationLoader just saved, so they must match them exactly */
+   If &item.TermYear > 0 Then
+      &row.TERM_YEAR = &item.TermYear;
+   End-If;
+   If &chk.IsSet(&item.ExtTerm) Then
+      &row.EXT_TERM = &item.ExtTerm;
+   End-If;
+   &row.SCHOOL_SUBJECT_0 = Upper(&c.CourseSubjectAbbreviation);
+   &row.SCHOOL_CRSE_NBR = Upper(&c.CourseNumber);
+   &row.DESCR_0 = Left(&c.CourseTitle, &cfg.DescrLength);
+   &row.UNT_TAKEN_1 = &c.CourseCreditValue;
+   &v = &xw.CourseGrade(&c.CourseAcademicGradeScaleCode, &c.CourseAcademicGrade);
+   If All(&v) Then
+      &row.CRSE_GRADE_INPUT_0 = &v;
+   End-If;
+
+   /* The equivalent course is left for staff to enter. A placeholder is
+      set only if the component insists on one (Config.GenericCrseId). */
+   If &chk.IsSet(&cfg.GenericCrseId) Then
+      &row.CRSE_ID = &cfg.GenericCrseId;
+      &row.CRSE_OFFER_NBR = &cfg.GenericCrseOfferNbr;
+   End-If;
+   If &chk.IsSet(&cfg.TrnsGradingScheme) Then
+      &row.GRADING_SCHEME_0 = &cfg.TrnsGradingScheme;
+   End-If;
+   If &chk.IsSet(&cfg.TrnsGradingBasis) Then
+      &row.GRADING_BASIS_0 = &cfg.TrnsGradingBasis;
+   End-If;
+
+   &v = &xw.Lookup("REPEAT_CODE", &c.CourseRepeatCode);
+   If All(&v) Then
+      &row.REPEAT_CODE = &v;
+   End-If;
+   &v = &xw.LookupFirst("COURSE_LEVEL", CreateArray(&c.CourseLevel, &c.CourseCreditLevel));
+   If None(&v) Then
+      &v = &cfg.DefaultCourseLevel;
+   End-If;
+   If All(&v) Then
+      &row.COURSE_LEVEL = &v;
+   End-If;
+   If &chk.IsSet(&cfg.IncludeInGpa) Then
+      &row.INCLUDE_IN_GPA_0 = &cfg.IncludeInGpa;
+   End-If;
+end-method;
