@@ -26,7 +26,8 @@
  *    HCR_SM_PER_VW     the people the last search found (EMPLID)
  *
  * Tiered rules: every rule is run. A rule that uses a search field the
- * transcript can't fill (no postal code, say) has its results ignored.
+ * transcript can't fill (no postal code, say) doesn't count: the page
+ * greys out its button, so pressing it changes nothing.
  * The decision comes from the strictest result: the usable rule(s) that
  * found the fewest people, but at least one. One person there = MATCH,
  * more = MULTIPLE, no usable rule found anyone = NONE. With rules
@@ -73,6 +74,7 @@ private
    method ReadPerson(&person As UW_PESC:PersonType);
    method FillSearchFields(&flds As ApiObject, &blocked As array of string) Returns integer;
    method Collect(&ci As ApiObject) Returns array of string;
+   method ButtonRan() Returns boolean;
    method SplitIds(&joined As string) Returns array of string;
    method PostalOf(&person As UW_PESC:PersonType) Returns string;
 end-class;
@@ -158,21 +160,32 @@ method Match
       &ordr = &ci.HCR_SM_ORDR_TBL;
       If &ordr.Count = 0 Then
          &ci.SM_SEARCH_BTN = "Y";
-         &found = %This.Collect(&ci);
-         &perRule.Push(&found.Join(",", "", ""));
-         &tried.Push("search: " | &found.Len);
+         If %This.ButtonRan() Then
+            &found = %This.Collect(&ci);
+            &perRule.Push(&found.Join(",", "", ""));
+            &tried.Push("search: " | &found.Len);
+         Else
+            &tried.Push("search: not run (Search button unavailable)");
+         End-If;
       Else
          For &i = 1 To &ordr.Count
             &ordrRow = &ordr.Item(&i);
             &ordrRow.SM_SLCT_SEARCH_BTN = "Y";
-            &rule = &ci.SM_RULE_CD;
-            &found = %This.Collect(&ci);
-            If All(&rule) And
-                  &blocked.Find(&rule) > 0 Then
-               &tried.Push("rule " | &rule | ": ignored, needs a field the transcript lacks");
+            If Not %This.ButtonRan() Then
+               /* the page greys out a rule's button until all its fields
+                  have values; nothing ran, so the results on the page are
+                  still the previous rule's */
+               &tried.Push("rule row " | &i | ": not run, needs a field the transcript lacks");
             Else
-               &perRule.Push(&found.Join(",", "", ""));
-               &tried.Push("rule " | &rule | ": " | &found.Len);
+               &rule = &ci.SM_RULE_CD;
+               &found = %This.Collect(&ci);
+               If All(&rule) And
+                     &blocked.Find(&rule) > 0 Then
+                  &tried.Push("rule " | &rule | ": ignored, needs a field the transcript lacks");
+               Else
+                  &perRule.Push(&found.Join(",", "", ""));
+                  &tried.Push("rule " | &rule | ": " | &found.Len);
+               End-If;
             End-If;
          End-For;
       End-If;
@@ -330,6 +343,36 @@ method FillSearchFields
       End-If;
    End-For;
    Return &filled;
+end-method;
+
+method ButtonRan
+   /+ Returns Boolean +/
+   /* Reads the PSMessages from pressing a search button and clears them.
+      (91,34) "Error changing value" means the button was unavailable and
+      nothing ran. (18160,43) "did not return any results" is just a count
+      of 0. Anything else is logged. */
+   Local ApiObject &msgs, &msg;
+   Local boolean &ran = True;
+   Local number &set, &nbr;
+   Local integer &i;
+
+   &msgs = %Session.PSMessages;
+   For &i = 1 To &msgs.Count
+      &msg = &msgs.Item(&i);
+      &set = &msg.MessageSetNumber;
+      &nbr = &msg.MessageNumber;
+      If &set = 91 And
+            &nbr = 34 Then
+         &ran = False;
+      Else
+         If Not (&set = 18160 And
+               &nbr = 43) Then
+            &res.Info(0, "Search/Match: (" | &set | "," | &nbr | ") " | &msg.Text);
+         End-If;
+      End-If;
+   End-For;
+   &msgs.DeleteAll();
+   Return &ran;
 end-method;
 
 method Collect
