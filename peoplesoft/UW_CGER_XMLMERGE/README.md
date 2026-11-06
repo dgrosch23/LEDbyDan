@@ -83,6 +83,8 @@ them in that order.
 | `InsertBeforeTag` | blank = first child group | `InsertSections` insert point |
 | `BlocksProcessed`, `SectionsAdded` | | Counters set by `InsertSections` |
 
-The package compiles in Application Designer as of this version (the
-`@("FileLayout." | &name)` reference in `AppendRowset` resolved fine). It
-uses `XmlNode.CopyNode` across two `XmlDoc`s and `ChildNodeCount`/`GetChildNode`.
+Compile fixes so far: `CopyNode` is called as a statement because it returns
+no value, children are walked with `ChildNodeCount`/`GetChildNode` because
+there is no `ChildNodes` property, and `RemoveAttribute` isn't used because it
+doesn't exist. The `@("FileLayout." | &name)` reference in `AppendRowset`
+compiles.
