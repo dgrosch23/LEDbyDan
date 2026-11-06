@@ -6,7 +6,7 @@
  *
  *    &key   - text of the block's key child element (e.g. EMPLID)
  *    &block - the original block element, if you need other values from it
- *             (use XmlNode.ChildNodes, or XmlFileMerger.ChildText)
+ *             (use XmlNode.ChildNodeCount/GetChildNode, or XmlFileMerger.ChildText)
  *
  * Return a Rowset shaped like your custom File Layout, or Null when there is
  * nothing to add for this block. Don't return an empty rowset: a rowset that

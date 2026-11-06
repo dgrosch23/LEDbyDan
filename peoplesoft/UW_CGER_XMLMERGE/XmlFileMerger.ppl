@@ -137,6 +137,7 @@ method AppendRowset
    Local string &tag;
    Local XmlDoc &fragDoc;
    Local array of any &tops = CreateArrayAny();
+   Local XmlNode &top;
    Local number &i;
 
    /* A rowset that Fill() found nothing for still holds one blank row, and
@@ -186,10 +187,11 @@ method AppendRowset
 
    /* CopyNode returns nothing, so clean the source nodes before copying */
    For &i = 1 To &tops.Len
+      &top = &tops [&i];
       If %This.StripLayoutAttributes Then
-         %This.StripAttribute(&tops [&i], "class");
+         %This.StripAttribute(&top, "class");
       End-If;
-      &parent.CopyNode(&tops [&i]);
+      &parent.CopyNode(&top);
    End-For;
 
    Return &tops.Len;
@@ -208,20 +210,22 @@ method InsertSections
    Local XmlNode &oldRoot = &doc.DocumentElement;
    Local XmlDoc &newDoc = CreateXmlDoc("");
    Local XmlNode &newRoot = &newDoc.CreateDocumentElement(&oldRoot.NodeName);
-   Local array of XmlNode &kids = &oldRoot.ChildNodes;
+   Local number &kidCount = &oldRoot.ChildNodeCount;
+   Local XmlNode &kid;
    Local number &i;
 
    %This.BlocksProcessed = 0;
    %This.SectionsAdded = 0;
 
-   For &i = 1 To &kids.Len
+   For &i = 1 To &kidCount
+      &kid = &oldRoot.GetChildNode(&i);
       /* only elements are copied; indentation whitespace between them is
          dropped (use Pretty = True on Save if you want it re-indented) */
-      If &kids [&i].NodeType = 1 Then
-         If &kids [&i].NodeName = &blockTag Then
-            %This.CopyBlock(&newRoot, &kids [&i], &keyTag, &provider, &layoutName);
+      If &kid.NodeType = 1 Then
+         If &kid.NodeName = &blockTag Then
+            %This.CopyBlock(&newRoot, &kid, &keyTag, &provider, &layoutName);
          Else
-            &newRoot.CopyNode(&kids [&i]);
+            &newRoot.CopyNode(&kid);
          End-If;
       End-If;
    End-For;
@@ -237,7 +241,8 @@ method CopyBlock
    /+ &provider as UW_CGER_XMLMERGE:SectionProvider, +/
    /+ &layoutName as String +/
    Local XmlNode &newBlock = &newParent.AddElement(&oldBlock.NodeName);
-   Local array of XmlNode &kids = &oldBlock.ChildNodes;
+   Local number &kidCount = &oldBlock.ChildNodeCount;
+   Local XmlNode &kid;
    Local Rowset &rs = &provider.GetRowset(%This.ChildText(&oldBlock, &keyTag), &oldBlock);
    Local boolean &done = (&rs = Null);
    Local boolean &here;
@@ -245,20 +250,21 @@ method CopyBlock
 
    %This.BlocksProcessed = %This.BlocksProcessed + 1;
 
-   For &i = 1 To &kids.Len
-      If &kids [&i].NodeType = 1 Then
+   For &i = 1 To &kidCount
+      &kid = &oldBlock.GetChildNode(&i);
+      If &kid.NodeType = 1 Then
          If Not &done Then
             If Len(%This.InsertBeforeTag) > 0 Then
-               &here = (&kids [&i].NodeName = %This.InsertBeforeTag);
+               &here = (&kid.NodeName = %This.InsertBeforeTag);
             Else
-               &here = %This.IsGroup(&kids [&i]);
+               &here = %This.IsGroup(&kid);
             End-If;
             If &here Then
                %This.SectionsAdded = %This.SectionsAdded + %This.AppendRowset(&newBlock, &rs, &layoutName);
                &done = True;
             End-If;
          End-If;
-         &newBlock.CopyNode(&kids [&i]);
+         &newBlock.CopyNode(&kid);
       End-If;
    End-For;
 
@@ -272,11 +278,13 @@ end-method;
 method IsGroup
    /+ &node as XmlNode +/
    /+ Returns Boolean +/
-   Local array of XmlNode &kids = &node.ChildNodes;
+   Local number &kidCount = &node.ChildNodeCount;
+   Local XmlNode &kid;
    Local number &i;
 
-   For &i = 1 To &kids.Len
-      If &kids [&i].NodeType = 1 Then
+   For &i = 1 To &kidCount
+      &kid = &node.GetChildNode(&i);
+      If &kid.NodeType = 1 Then
          Return True;
       End-If;
    End-For;
@@ -289,24 +297,32 @@ method ChildText
    /+ &name as String +/
    /+ Returns String +/
    /* text of the first direct child element called &name, "" if none */
-   Local array of XmlNode &kids = &node.ChildNodes;
-   Local array of XmlNode &inner;
+   Local number &kidCount = &node.ChildNodeCount;
+   Local XmlNode &kid;
+   Local number &innerCount;
+   Local XmlNode &inner;
    Local string &text;
    Local number &i;
    Local number &j;
 
-   For &i = 1 To &kids.Len
-      If &kids [&i].NodeType = 1 And
-            &kids [&i].NodeName = &name Then
-         &inner = &kids [&i].ChildNodes;
+   For &i = 1 To &kidCount
+      &kid = &node.GetChildNode(&i);
+      If &kid.NodeType = 1 And
+            &kid.NodeName = &name Then
+         &innerCount = &kid.ChildNodeCount;
          &text = "";
-         For &j = 1 To &inner.Len
+         For &j = 1 To &innerCount
+            &inner = &kid.GetChildNode(&j);
             /* 3 = text, 4 = CDATA */
-            If &inner [&j].NodeType = 3 Or
-                  &inner [&j].NodeType = 4 Then
-               &text = &text | &inner [&j].NodeValue;
+            If &inner.NodeType = 3 Or
+                  &inner.NodeType = 4 Then
+               &text = &text | &inner.NodeValue;
             End-If;
          End-For;
+         /* some releases don't expose text as child nodes */
+         If Len(&text) = 0 Then
+            &text = &kid.NodeValue;
+         End-If;
          Return RTrim(LTrim(&text));
       End-If;
    End-For;
@@ -395,15 +411,17 @@ method CollectByName
    /+ &name as String, +/
    /+ &out as Array of Any +/
    /* shallowest elements called &name; does not descend into a match */
-   Local array of XmlNode &kids = &node.ChildNodes;
+   Local number &kidCount = &node.ChildNodeCount;
+   Local XmlNode &kid;
    Local number &i;
 
-   For &i = 1 To &kids.Len
-      If &kids [&i].NodeType = 1 Then
-         If &kids [&i].NodeName = &name Then
-            &out.Push(&kids [&i]);
+   For &i = 1 To &kidCount
+      &kid = &node.GetChildNode(&i);
+      If &kid.NodeType = 1 Then
+         If &kid.NodeName = &name Then
+            &out.Push(&kid);
          Else
-            %This.CollectByName(&kids [&i], &name, &out);
+            %This.CollectByName(&kid, &name, &out);
          End-If;
       End-If;
    End-For;
@@ -413,16 +431,18 @@ end-method;
 method StripAttribute
    /+ &node as XmlNode, +/
    /+ &name as String +/
-   Local array of XmlNode &kids;
+   Local number &kidCount;
+   Local XmlNode &kid;
    Local number &i;
 
    If Len(&node.GetAttributeValue(&name)) > 0 Then
       &node.RemoveAttribute(&name);
    End-If;
-   &kids = &node.ChildNodes;
-   For &i = 1 To &kids.Len
-      If &kids [&i].NodeType = 1 Then
-         %This.StripAttribute(&kids [&i], &name);
+   &kidCount = &node.ChildNodeCount;
+   For &i = 1 To &kidCount
+      &kid = &node.GetChildNode(&i);
+      If &kid.NodeType = 1 Then
+         %This.StripAttribute(&kid, &name);
       End-If;
    End-For;
 end-method;
