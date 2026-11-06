@@ -1,6 +1,6 @@
-# DG_XMLMERGE — append File Layout output to an existing XML file
+# UW_CGER_XMLMERGE — append File Layout output to an existing XML file
 
-`DG_XMLMERGE:XmlFileMerger` reads an existing XML file, such as a BI Publisher
+`UW_CGER_XMLMERGE:XmlFileMerger` reads an existing XML file, such as a BI Publisher
 transcript data file written by a delivered File Layout. It appends extra
 sections rendered by your own XML File Layout from a Rowset, then saves the
 result to the same path under the same file name.
@@ -8,7 +8,7 @@ result to the same path under the same file name.
 ## Transcript example (CGER sections)
 
 [`Example/AppendTranscript.ppl`](Example/AppendTranscript.ppl) and
-[`Example/CgerSectionProvider.ppl`](Example/CgerSectionProvider.ppl) add
+[`Example/CGERSectionProvider.ppl`](Example/CGERSectionProvider.ppl) add
 `<CGERData>` (with nested `<CGERCourseInfo>`) inside every
 `<Start>/<G_SSR_TSRSLT_HDR>`. The new sections go after the header fields and
 before `<G_SSR_TSRSLT_SVW1>`:
@@ -35,10 +35,9 @@ student's block is copied unchanged.
 
 ## Installing
 
-Create application package `DG_XMLMERGE` with classes `SectionProvider` and
-`XmlFileMerger`, plus a subpackage `Example` with `CgerSectionProvider`. Save
-them in that order. You'll probably copy the provider into your own `UW_`
-package rather than keep it under `Example`.
+Create application package `UW_CGER_XMLMERGE` with classes `SectionProvider` and
+`XmlFileMerger`, plus a subpackage `Example` with `CGERSectionProvider`. Save
+them in that order.
 
 ## Low-level flow (AppendRowset)
 

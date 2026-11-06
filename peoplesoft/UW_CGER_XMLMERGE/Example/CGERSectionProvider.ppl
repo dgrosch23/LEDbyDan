@@ -1,9 +1,9 @@
 /* ===========================================================================
- * DG_XMLMERGE:Example:CgerSectionProvider
+ * UW_CGER_XMLMERGE:Example:CGERSectionProvider
  *
  * Supplies the <CGERData>/<CGERCourseInfo> sections for one transcript
- * block (<G_SSR_TSRSLT_HDR>). Copy this into your own package and replace
- * the names marked <<< with yours:
+ * block (<G_SSR_TSRSLT_HDR>). Replace the names marked <<<
+ * with yours:
  *
  *    UW_CGER_HDR   record behind <CGERData>
  *                  (EMPLID, EFFDT, UW_CGER_STUD_TYPE, REQ_TERM)
@@ -13,15 +13,15 @@
  * The rowset must have the same shape as your custom File Layout: level 0 =
  * the CGERData record, level 1 = the CGERCourseInfo record.
  * ========================================================================= */
-import DG_XMLMERGE:SectionProvider;
+import UW_CGER_XMLMERGE:SectionProvider;
 
-class CgerSectionProvider implements DG_XMLMERGE:SectionProvider
-   method CgerSectionProvider();
+class CGERSectionProvider implements UW_CGER_XMLMERGE:SectionProvider
+   method CGERSectionProvider();
    method GetRowset(&key As string, &block As XmlNode) Returns Rowset;
 end-class;
 
 
-method CgerSectionProvider
+method CGERSectionProvider
 end-method;
 
 

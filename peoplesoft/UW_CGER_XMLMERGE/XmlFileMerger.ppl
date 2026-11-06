@@ -1,12 +1,12 @@
 /* ===========================================================================
- * DG_XMLMERGE:XmlFileMerger
+ * UW_CGER_XMLMERGE:XmlFileMerger
  *
  * Opens an existing XML file (for example a BI Publisher transcript data
  * file written by a delivered File Layout), appends extra sections built by
  * a custom XML File Layout from a Rowset, and saves the result back to the
  * same path under the same name.
  *
- *    Local DG_XMLMERGE:XmlFileMerger &m = create DG_XMLMERGE:XmlFileMerger();
+ *    Local UW_CGER_XMLMERGE:XmlFileMerger &m = create UW_CGER_XMLMERGE:XmlFileMerger();
  *    Local XmlDoc &doc = &m.Load(&path);
  *    &m.RecordTag = "CGERData";
  *    Local XmlDoc &out = &m.InsertSections(&doc, "G_SSR_TSRSLT_HDR", "EMPLID",
@@ -38,7 +38,7 @@
  * the merged XML first. If anything fails, the original file is untouched.
  * ========================================================================= */
 
-import DG_XMLMERGE:SectionProvider;
+import UW_CGER_XMLMERGE:SectionProvider;
 
 class XmlFileMerger
    method XmlFileMerger();
@@ -66,7 +66,7 @@ class XmlFileMerger
    method Load(&path As string) Returns XmlDoc;
    method Save(&doc As XmlDoc, &path As string);
    method AppendRowset(&parent As XmlNode, &rs As Rowset, &layoutName As string) Returns number;
-   method InsertSections(&doc As XmlDoc, &blockTag As string, &keyTag As string, &provider As DG_XMLMERGE:SectionProvider, &layoutName As string) Returns XmlDoc;
+   method InsertSections(&doc As XmlDoc, &blockTag As string, &keyTag As string, &provider As UW_CGER_XMLMERGE:SectionProvider, &layoutName As string) Returns XmlDoc;
    method ChildText(&node As XmlNode, &name As string) Returns string;
    method ReadText(&path As string) Returns string;
    method WriteText(&path As string, &text As string);
@@ -77,7 +77,7 @@ private
    method CollectByName(&node As XmlNode, &name As string, &out As array of any);
    method StripAttribute(&node As XmlNode, &name As string);
    method DeleteFile(&path As string);
-   method CopyBlock(&newParent As XmlNode, &oldBlock As XmlNode, &keyTag As string, &provider As DG_XMLMERGE:SectionProvider, &layoutName As string);
+   method CopyBlock(&newParent As XmlNode, &oldBlock As XmlNode, &keyTag As string, &provider As UW_CGER_XMLMERGE:SectionProvider, &layoutName As string);
    method IsGroup(&node As XmlNode) Returns boolean;
 end-class;
 
@@ -149,18 +149,18 @@ method AppendRowset
    End-If;
 
    If Len(%This.WorkFile) = 0 Then
-      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - set WorkFile (or call Load) before AppendRowset");
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - set WorkFile (or call Load) before AppendRowset");
    End-If;
 
    /* 1. let the custom File Layout render the rowset as XML */
    &f = GetFile(%This.WorkFile, "W", %This.Charset, %FilePath_Absolute);
    If &f = Null Or
          Not &f.IsOpen Then
-      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - cannot open work file %1", %This.WorkFile);
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - cannot open work file %1", %This.WorkFile);
    End-If;
    If Not &f.SetFileLayout(@("FileLayout." | &layoutName)) Then
       &f.Close();
-      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - SetFileLayout failed for %1", &layoutName);
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - SetFileLayout failed for %1", &layoutName);
    End-If;
    &f.WriteRowset(&rs, True);
    &f.Close();
@@ -182,7 +182,7 @@ method AppendRowset
    End-If;
    %This.CollectByName(&fragDoc.DocumentElement, &tag, &tops);
    If &tops.Len = 0 Then
-      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - no <%1> elements in File Layout %2 output. Set RecordTag to the layout's File Record ID.", &tag, &layoutName);
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - no <%1> elements in File Layout %2 output. Set RecordTag to the layout's File Record ID.", &tag, &layoutName);
    End-If;
 
    For &i = 1 To &tops.Len
@@ -200,7 +200,7 @@ method InsertSections
    /+ &doc as XmlDoc, +/
    /+ &blockTag as String, +/
    /+ &keyTag as String, +/
-   /+ &provider as DG_XMLMERGE:SectionProvider, +/
+   /+ &provider as UW_CGER_XMLMERGE:SectionProvider, +/
    /+ &layoutName as String +/
    /+ Returns XmlDoc +/
    /* Blocks are the root's direct children named &blockTag (for transcripts
@@ -235,7 +235,7 @@ method CopyBlock
    /+ &newParent as XmlNode, +/
    /+ &oldBlock as XmlNode, +/
    /+ &keyTag as String, +/
-   /+ &provider as DG_XMLMERGE:SectionProvider, +/
+   /+ &provider as UW_CGER_XMLMERGE:SectionProvider, +/
    /+ &layoutName as String +/
    Local XmlNode &newBlock = &newParent.AddElement(&oldBlock.NodeName);
    Local array of XmlNode &kids = &oldBlock.ChildNodes;
@@ -326,7 +326,7 @@ method ReadText
 
    If &f = Null Or
          Not &f.IsOpen Then
-      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - cannot open %1 for reading", &path);
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - cannot open %1 for reading", &path);
    End-If;
    While &f.ReadLine(&line)
       &lines.Push(&line);
@@ -350,7 +350,7 @@ method WriteText
    Local File &f = GetFile(&path, "W", %This.Charset, %FilePath_Absolute);
    If &f = Null Or
          Not &f.IsOpen Then
-      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - cannot open %1 for writing", &path);
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - cannot open %1 for writing", &path);
    End-If;
    &f.WriteString(&text);
    &f.Close();
@@ -367,10 +367,10 @@ method ParseText
    try
       &ok = &doc.ParseXmlString(&text);
    catch Exception &ex
-      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - XML parse error in %1: %2", &what, &ex.ToString());
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - XML parse error in %1: %2", &what, &ex.ToString());
    end-try;
    If Not &ok Then
-      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - %1 is not well-formed XML", &what);
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - %1 is not well-formed XML", &what);
    End-If;
    Return &doc;
 end-method;

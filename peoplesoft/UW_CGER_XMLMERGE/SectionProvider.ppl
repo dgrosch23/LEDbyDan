@@ -1,5 +1,5 @@
 /* ===========================================================================
- * DG_XMLMERGE:SectionProvider
+ * UW_CGER_XMLMERGE:SectionProvider
  *
  * Implement this to supply the extra data for one block of the XML file
  * (for a transcript, one <G_SSR_TSRSLT_HDR> = one student/report).

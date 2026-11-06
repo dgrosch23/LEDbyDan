@@ -24,11 +24,11 @@
  * records must be named CGERData and CGERCourseInfo, the tags you want in
  * the output.                                                       <<<
  * ========================================================================= */
-import DG_XMLMERGE:XmlFileMerger;
-import DG_XMLMERGE:Example:CgerSectionProvider;   /* <<< your copy */
+import UW_CGER_XMLMERGE:XmlFileMerger;
+import UW_CGER_XMLMERGE:Example:CGERSectionProvider;
 
-Local DG_XMLMERGE:XmlFileMerger &merge = create DG_XMLMERGE:XmlFileMerger();
-Local DG_XMLMERGE:Example:CgerSectionProvider &cger = create DG_XMLMERGE:Example:CgerSectionProvider();
+Local UW_CGER_XMLMERGE:XmlFileMerger &merge = create UW_CGER_XMLMERGE:XmlFileMerger();
+Local UW_CGER_XMLMERGE:Example:CGERSectionProvider &cger = create UW_CGER_XMLMERGE:Example:CGERSectionProvider();
 Local string &path;
 Local XmlDoc &doc;
 Local XmlDoc &merged;
