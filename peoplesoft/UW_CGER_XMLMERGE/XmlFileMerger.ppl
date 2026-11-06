@@ -136,7 +136,6 @@ method AppendRowset
    Local string &frag;
    Local string &tag;
    Local XmlDoc &fragDoc;
-   Local XmlNode &copy;
    Local array of any &tops = CreateArrayAny();
    Local number &i;
 
@@ -185,11 +184,12 @@ method AppendRowset
       throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - no <%1> elements in File Layout %2 output. Set RecordTag to the layout's File Record ID.", &tag, &layoutName);
    End-If;
 
+   /* CopyNode returns nothing, so clean the source nodes before copying */
    For &i = 1 To &tops.Len
-      &copy = &parent.CopyNode(&tops [&i]);
       If %This.StripLayoutAttributes Then
-         %This.StripAttribute(&copy, "class");
+         %This.StripAttribute(&tops [&i], "class");
       End-If;
+      &parent.CopyNode(&tops [&i]);
    End-For;
 
    Return &tops.Len;
@@ -209,7 +209,6 @@ method InsertSections
    Local XmlDoc &newDoc = CreateXmlDoc("");
    Local XmlNode &newRoot = &newDoc.CreateDocumentElement(&oldRoot.NodeName);
    Local array of XmlNode &kids = &oldRoot.ChildNodes;
-   Local XmlNode &copy;
    Local number &i;
 
    %This.BlocksProcessed = 0;
@@ -222,7 +221,7 @@ method InsertSections
          If &kids [&i].NodeName = &blockTag Then
             %This.CopyBlock(&newRoot, &kids [&i], &keyTag, &provider, &layoutName);
          Else
-            &copy = &newRoot.CopyNode(&kids [&i]);
+            &newRoot.CopyNode(&kids [&i]);
          End-If;
       End-If;
    End-For;
@@ -242,7 +241,6 @@ method CopyBlock
    Local Rowset &rs = &provider.GetRowset(%This.ChildText(&oldBlock, &keyTag), &oldBlock);
    Local boolean &done = (&rs = Null);
    Local boolean &here;
-   Local XmlNode &copy;
    Local number &i;
 
    %This.BlocksProcessed = %This.BlocksProcessed + 1;
@@ -260,7 +258,7 @@ method CopyBlock
                &done = True;
             End-If;
          End-If;
-         &copy = &newBlock.CopyNode(&kids [&i]);
+         &newBlock.CopyNode(&kids [&i]);
       End-If;
    End-For;
 
