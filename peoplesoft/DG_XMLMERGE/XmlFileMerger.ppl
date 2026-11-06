@@ -1,0 +1,321 @@
+/* ===========================================================================
+ * DG_XMLMERGE:XmlFileMerger
+ *
+ * Opens an existing XML file (for example a BI Publisher transcript data
+ * file written by a delivered File Layout), appends extra sections built by
+ * a custom XML File Layout from a Rowset, and saves the result back to the
+ * same path under the same name.
+ *
+ *    Local DG_XMLMERGE:XmlFileMerger &m = create DG_XMLMERGE:XmlFileMerger();
+ *    Local XmlDoc &doc = &m.Load(&path);
+ *    Local number &n = &m.AppendRowset(&doc.DocumentElement, &rs, "MY_XML_FL");
+ *    &m.Save(&doc, &path);
+ *
+ * How AppendRowset works: the rowset is written with File.WriteRowset to a
+ * work file using your custom File Layout (its Format must be XML), the work
+ * file is read back and parsed, and every top-level record element is
+ * copied (XmlNode.CopyNode, children included) under the parent node you
+ * pass. The XML for the extra data therefore comes from your layout
+ * exactly, with the same tag names and the same field formatting the
+ * delivered layout uses.
+ *
+ * Nothing is written to the original file until Save, and Save re-parses
+ * the merged XML first. If anything fails, the original file is untouched.
+ * ========================================================================= */
+
+class XmlFileMerger
+   method XmlFileMerger();
+
+   /* Character set for GetFile. Default "UTF8". */
+   property string Charset;
+   /* Save with GenFormattedXmlString (indented) instead of GenXmlString. */
+   property boolean Pretty;
+   /* Save writes a copy of the original to <path>.bak first. */
+   property boolean KeepBackup;
+   /* Remove the class="R" attributes that XML File Layouts add to records. */
+   property boolean StripLayoutAttributes;
+   /* Scratch file for WriteRowset. Load sets it to <path>.dgtmp if blank. */
+   property string WorkFile;
+   /* Tag that marks one row in the layout output. Blank = the rowset's
+      DBRecordName. Set it if the File Record ID in your layout differs. */
+   property string RecordTag;
+
+   method Load(&path As string) Returns XmlDoc;
+   method Save(&doc As XmlDoc, &path As string);
+   method AppendRowset(&parent As XmlNode, &rs As Rowset, &layoutName As string) Returns number;
+   method ChildText(&node As XmlNode, &name As string) Returns string;
+   method ReadText(&path As string) Returns string;
+   method WriteText(&path As string, &text As string);
+
+private
+   method ParseText(&text As string, &what As string) Returns XmlDoc;
+   method StripDeclaration(&text As string) Returns string;
+   method CollectByName(&node As XmlNode, &name As string, &out As array of any);
+   method StripAttribute(&node As XmlNode, &name As string);
+   method DeleteFile(&path As string);
+end-class;
+
+
+method XmlFileMerger
+   %This.Charset = "UTF8";
+   %This.Pretty = False;
+   %This.KeepBackup = False;
+   %This.StripLayoutAttributes = True;
+   %This.WorkFile = "";
+   %This.RecordTag = "";
+end-method;
+
+
+method Load
+   /+ &path as String +/
+   /+ Returns XmlDoc +/
+   If Len(%This.WorkFile) = 0 Then
+      %This.WorkFile = &path | ".dgtmp";
+   End-If;
+   Return %This.ParseText(%This.ReadText(&path), &path);
+end-method;
+
+
+method Save
+   /+ &doc as XmlDoc, +/
+   /+ &path as String +/
+   Local string &xml;
+   Local XmlDoc &check;
+
+   If %This.Pretty Then
+      &xml = &doc.GenFormattedXmlString();
+   Else
+      &xml = &doc.GenXmlString();
+   End-If;
+
+   /* make sure what we are about to write is well formed */
+   &check = %This.ParseText(&xml, "merged document for " | &path);
+
+   If %This.KeepBackup Then
+      %This.WriteText(&path | ".bak", %This.ReadText(&path));
+   End-If;
+   %This.WriteText(&path, &xml);
+end-method;
+
+
+method AppendRowset
+   /+ &parent as XmlNode, +/
+   /+ &rs as Rowset, +/
+   /+ &layoutName as String +/
+   /+ Returns Number +/
+   Local File &f;
+   Local string &frag;
+   Local string &tag;
+   Local XmlDoc &fragDoc;
+   Local XmlNode &copy;
+   Local array of any &tops = CreateArrayAny();
+   Local number &i;
+
+   /* A rowset that Fill() found nothing for still holds one blank row, and
+      the layout would write it as an empty record. Callers should skip the
+      call when Fill() returns 0 (see the example). */
+   If &rs = Null Or
+         &rs.ActiveRowCount = 0 Then
+      Return 0;
+   End-If;
+
+   If Len(%This.WorkFile) = 0 Then
+      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - set WorkFile (or call Load) before AppendRowset");
+   End-If;
+
+   /* 1. let the custom File Layout render the rowset as XML */
+   &f = GetFile(%This.WorkFile, "W", %This.Charset, %FilePath_Absolute);
+   If &f = Null Or
+         Not &f.IsOpen Then
+      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - cannot open work file %1", %This.WorkFile);
+   End-If;
+   If Not &f.SetFileLayout(@("FileLayout." | &layoutName)) Then
+      &f.Close();
+      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - SetFileLayout failed for %1", &layoutName);
+   End-If;
+   &f.WriteRowset(&rs, True);
+   &f.Close();
+
+   /* 2. read it back. Layout output is a list of record elements, possibly
+         without a single root, so wrap it before parsing. */
+   &frag = %This.StripDeclaration(%This.ReadText(%This.WorkFile));
+   %This.DeleteFile(%This.WorkFile);
+   If Len(RTrim(LTrim(&frag))) = 0 Then
+      Return 0;
+   End-If;
+   &fragDoc = %This.ParseText("<DG_FRAGMENT>" | &frag | "</DG_FRAGMENT>", "File Layout " | &layoutName | " output");
+
+   /* 3. find the top-level record elements (skipping any wrapper the
+         layout itself adds) and copy them, children included */
+   &tag = %This.RecordTag;
+   If Len(&tag) = 0 Then
+      &tag = &rs.DBRecordName;
+   End-If;
+   %This.CollectByName(&fragDoc.DocumentElement, &tag, &tops);
+   If &tops.Len = 0 Then
+      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - no <%1> elements in File Layout %2 output. Set RecordTag to the layout's File Record ID.", &tag, &layoutName);
+   End-If;
+
+   For &i = 1 To &tops.Len
+      &copy = &parent.CopyNode(&tops [&i]);
+      If %This.StripLayoutAttributes Then
+         %This.StripAttribute(&copy, "class");
+      End-If;
+   End-For;
+
+   Return &tops.Len;
+end-method;
+
+
+method ChildText
+   /+ &node as XmlNode, +/
+   /+ &name as String +/
+   /+ Returns String +/
+   /* text of the first direct child element called &name, "" if none */
+   Local array of XmlNode &kids = &node.ChildNodes;
+   Local array of XmlNode &inner;
+   Local string &text;
+   Local number &i;
+   Local number &j;
+
+   For &i = 1 To &kids.Len
+      If &kids [&i].NodeType = 1 And
+            &kids [&i].NodeName = &name Then
+         &inner = &kids [&i].ChildNodes;
+         &text = "";
+         For &j = 1 To &inner.Len
+            /* 3 = text, 4 = CDATA */
+            If &inner [&j].NodeType = 3 Or
+                  &inner [&j].NodeType = 4 Then
+               &text = &text | &inner [&j].NodeValue;
+            End-If;
+         End-For;
+         Return RTrim(LTrim(&text));
+      End-If;
+   End-For;
+   Return "";
+end-method;
+
+
+method ReadText
+   /+ &path as String +/
+   /+ Returns String +/
+   Local File &f = GetFile(&path, "R", %This.Charset, %FilePath_Absolute);
+   Local array of string &lines = CreateArrayRept("", 0);
+   Local string &line;
+   Local string &text;
+
+   If &f = Null Or
+         Not &f.IsOpen Then
+      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - cannot open %1 for reading", &path);
+   End-If;
+   While &f.ReadLine(&line)
+      &lines.Push(&line);
+   End-While;
+   &f.Close();
+
+   &text = &lines.Join(Char(10), "", "");
+   /* drop a UTF-8 byte order mark if one came through */
+   If Len(&text) > 0 Then
+      If Code(Substring(&text, 1, 1)) = 65279 Then
+         &text = Substring(&text, 2, Len(&text) - 1);
+      End-If;
+   End-If;
+   Return &text;
+end-method;
+
+
+method WriteText
+   /+ &path as String, +/
+   /+ &text as String +/
+   Local File &f = GetFile(&path, "W", %This.Charset, %FilePath_Absolute);
+   If &f = Null Or
+         Not &f.IsOpen Then
+      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - cannot open %1 for writing", &path);
+   End-If;
+   &f.WriteString(&text);
+   &f.Close();
+end-method;
+
+
+method ParseText
+   /+ &text as String, +/
+   /+ &what as String +/
+   /+ Returns XmlDoc +/
+   Local XmlDoc &doc = CreateXmlDoc("");
+   Local boolean &ok;
+
+   try
+      &ok = &doc.ParseXmlString(&text);
+   catch Exception &ex
+      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - XML parse error in %1: %2", &what, &ex.ToString());
+   end-try;
+   If Not &ok Then
+      throw CreateException(0, 0, "DG_XMLMERGE:XmlFileMerger - %1 is not well-formed XML", &what);
+   End-If;
+   Return &doc;
+end-method;
+
+
+method StripDeclaration
+   /+ &text as String +/
+   /+ Returns String +/
+   Local string &t = LTrim(&text);
+   Local number &end;
+
+   If Substring(&t, 1, 5) = "<?xml" Then
+      &end = Find("?>", &t);
+      If &end > 0 Then
+         Return Substring(&t, &end + 2, Len(&t) - &end - 1);
+      End-If;
+   End-If;
+   Return &t;
+end-method;
+
+
+method CollectByName
+   /+ &node as XmlNode, +/
+   /+ &name as String, +/
+   /+ &out as Array of Any +/
+   /* shallowest elements called &name; does not descend into a match */
+   Local array of XmlNode &kids = &node.ChildNodes;
+   Local number &i;
+
+   For &i = 1 To &kids.Len
+      If &kids [&i].NodeType = 1 Then
+         If &kids [&i].NodeName = &name Then
+            &out.Push(&kids [&i]);
+         Else
+            %This.CollectByName(&kids [&i], &name, &out);
+         End-If;
+      End-If;
+   End-For;
+end-method;
+
+
+method StripAttribute
+   /+ &node as XmlNode, +/
+   /+ &name as String +/
+   Local array of XmlNode &kids;
+   Local number &i;
+
+   If Len(&node.GetAttributeValue(&name)) > 0 Then
+      &node.RemoveAttribute(&name);
+   End-If;
+   &kids = &node.ChildNodes;
+   For &i = 1 To &kids.Len
+      If &kids [&i].NodeType = 1 Then
+         %This.StripAttribute(&kids [&i], &name);
+      End-If;
+   End-For;
+end-method;
+
+
+method DeleteFile
+   /+ &path as String +/
+   Local File &f = GetFile(&path, "R", %This.Charset, %FilePath_Absolute);
+   If &f <> Null And
+         &f.IsOpen Then
+      &f.Delete();
+   End-If;
+end-method;
