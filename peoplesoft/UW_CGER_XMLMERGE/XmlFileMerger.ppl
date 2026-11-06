@@ -49,8 +49,6 @@ class XmlFileMerger
    property boolean Pretty;
    /* Save writes a copy of the original to <path>.bak first. */
    property boolean KeepBackup;
-   /* Remove the class="R" attributes that XML File Layouts add to records. */
-   property boolean StripLayoutAttributes;
    /* Scratch file for WriteRowset. Load sets it to <path>.dgtmp if blank. */
    property string WorkFile;
    /* Tag that marks one row in the layout output. Blank = the rowset's
@@ -75,7 +73,6 @@ private
    method ParseText(&text As string, &what As string) Returns XmlDoc;
    method StripDeclaration(&text As string) Returns string;
    method CollectByName(&node As XmlNode, &name As string, &out As array of any);
-   method StripAttribute(&node As XmlNode, &name As string);
    method DeleteFile(&path As string);
    method CopyBlock(&newParent As XmlNode, &oldBlock As XmlNode, &keyTag As string, &provider As UW_CGER_XMLMERGE:SectionProvider, &layoutName As string);
    method IsGroup(&node As XmlNode) Returns boolean;
@@ -86,7 +83,6 @@ method XmlFileMerger
    %This.Charset = "UTF8";
    %This.Pretty = False;
    %This.KeepBackup = False;
-   %This.StripLayoutAttributes = True;
    %This.WorkFile = "";
    %This.RecordTag = "";
    %This.InsertBeforeTag = "";
@@ -185,12 +181,8 @@ method AppendRowset
       throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - no <%1> elements in File Layout %2 output. Set RecordTag to the layout's File Record ID.", &tag, &layoutName);
    End-If;
 
-   /* CopyNode returns nothing, so clean the source nodes before copying */
    For &i = 1 To &tops.Len
       &top = &tops [&i];
-      If %This.StripLayoutAttributes Then
-         %This.StripAttribute(&top, "class");
-      End-If;
       &parent.CopyNode(&top);
    End-For;
 
@@ -427,25 +419,6 @@ method CollectByName
    End-For;
 end-method;
 
-
-method StripAttribute
-   /+ &node as XmlNode, +/
-   /+ &name as String +/
-   Local number &kidCount;
-   Local XmlNode &kid;
-   Local number &i;
-
-   If Len(&node.GetAttributeValue(&name)) > 0 Then
-      &node.RemoveAttribute(&name);
-   End-If;
-   &kidCount = &node.ChildNodeCount;
-   For &i = 1 To &kidCount
-      &kid = &node.GetChildNode(&i);
-      If &kid.NodeType = 1 Then
-         %This.StripAttribute(&kid, &name);
-      End-If;
-   End-For;
-end-method;
 
 
 method DeleteFile

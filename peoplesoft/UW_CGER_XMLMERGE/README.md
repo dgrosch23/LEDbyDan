@@ -64,8 +64,6 @@ them in that order.
   only the `RecordTag` elements and their children are copied.
 * Field formats (e.g. `EFFDT` as `09/21/2026`) come from your layout's field
   settings, not from this code.
-* XML File Layouts put `class="R"` on record elements. These attributes are
-  removed by default (`StripLayoutAttributes = True`).
 * `AppendRowset` adds the new elements as the **last children** of the node you pass. Use `InsertSections` to place them mid-block.
 * The process (App Server or Process Scheduler) needs write access to the
   directory, because the work file and `.bak` go next to the original.
@@ -80,14 +78,11 @@ them in that order.
 | `Charset` | `UTF8` | Charset for `GetFile` |
 | `Pretty` | False | Indent the saved XML |
 | `KeepBackup` | False | Write `<path>.bak` before overwriting |
-| `StripLayoutAttributes` | True | Remove `class="R"` from appended elements |
 | `WorkFile` | `<path>.dgtmp` | Scratch file for `WriteRowset` |
 | `RecordTag` | rowset `DBRecordName` | Element that marks one row in the layout output (`CGERData`) |
 | `InsertBeforeTag` | blank = first child group | `InsertSections` insert point |
 | `BlocksProcessed`, `SectionsAdded` | | Counters set by `InsertSections` |
 
-Like `DG_SERIALIZE`, this hasn't been compiled against a live PeopleTools
-environment yet. It uses `XmlNode.CopyNode` (including across two `XmlDoc`s), `XmlNode.RemoveAttribute`,
-`XmlDoc.GetElementsByTagName`, and `@("FileLayout." | &name)` with
-`SetFileLayout`. If `@` doesn't resolve a FileLayout reference on your
-release, hard-code `FileLayout.YOUR_LAYOUT` in `AppendRowset`.
+The package compiles in Application Designer as of this version (the
+`@("FileLayout." | &name)` reference in `AppendRowset` resolved fine). It
+uses `XmlNode.CopyNode` across two `XmlDoc`s and `ChildNodeCount`/`GetChildNode`.
