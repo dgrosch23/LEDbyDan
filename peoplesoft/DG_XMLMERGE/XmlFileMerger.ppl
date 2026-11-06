@@ -8,8 +8,23 @@
  *
  *    Local DG_XMLMERGE:XmlFileMerger &m = create DG_XMLMERGE:XmlFileMerger();
  *    Local XmlDoc &doc = &m.Load(&path);
- *    Local number &n = &m.AppendRowset(&doc.DocumentElement, &rs, "MY_XML_FL");
- *    &m.Save(&doc, &path);
+ *    &m.RecordTag = "CGERData";
+ *    Local XmlDoc &out = &m.InsertSections(&doc, "G_SSR_TSRSLT_HDR", "EMPLID",
+ *                                          &provider, "MY_XML_FL");
+ *    &m.Save(&out, &path);
+ *
+ * InsertSections copies the document into a new XmlDoc in order. For each
+ * block element (one per student), it asks your SectionProvider for a
+ * rowset and writes that rowset's XML at the insert point:
+ *    - before the child named InsertBeforeTag, if you set it, otherwise
+ *    - before the block's first child group (the first child element that
+ *      has child elements of its own, e.g. <G_SSR_TSRSLT_SVW1>), otherwise
+ *    - at the end of the block.
+ * Rebuilding avoids needing insert-before/replace APIs on XmlNode: it only
+ * uses AddElement and CopyNode.
+ *
+ * AppendRowset is the lower-level piece: it appends a rowset's XML as the
+ * last children of any node you pass.
  *
  * How AppendRowset works: the rowset is written with File.WriteRowset to a
  * work file using your custom File Layout (its Format must be XML), the work
@@ -22,6 +37,8 @@
  * Nothing is written to the original file until Save, and Save re-parses
  * the merged XML first. If anything fails, the original file is untouched.
  * ========================================================================= */
+
+import DG_XMLMERGE:SectionProvider;
 
 class XmlFileMerger
    method XmlFileMerger();
@@ -39,10 +56,17 @@ class XmlFileMerger
    /* Tag that marks one row in the layout output. Blank = the rowset's
       DBRecordName. Set it if the File Record ID in your layout differs. */
    property string RecordTag;
+   /* InsertSections: child of a block to insert in front of. Blank = the
+      block's first child group (an element with child elements). */
+   property string InsertBeforeTag;
+   /* Counters set by InsertSections. */
+   property number BlocksProcessed;
+   property number SectionsAdded;
 
    method Load(&path As string) Returns XmlDoc;
    method Save(&doc As XmlDoc, &path As string);
    method AppendRowset(&parent As XmlNode, &rs As Rowset, &layoutName As string) Returns number;
+   method InsertSections(&doc As XmlDoc, &blockTag As string, &keyTag As string, &provider As DG_XMLMERGE:SectionProvider, &layoutName As string) Returns XmlDoc;
    method ChildText(&node As XmlNode, &name As string) Returns string;
    method ReadText(&path As string) Returns string;
    method WriteText(&path As string, &text As string);
@@ -53,6 +77,8 @@ private
    method CollectByName(&node As XmlNode, &name As string, &out As array of any);
    method StripAttribute(&node As XmlNode, &name As string);
    method DeleteFile(&path As string);
+   method CopyBlock(&newParent As XmlNode, &oldBlock As XmlNode, &keyTag As string, &provider As DG_XMLMERGE:SectionProvider, &layoutName As string);
+   method IsGroup(&node As XmlNode) Returns boolean;
 end-class;
 
 
@@ -63,6 +89,9 @@ method XmlFileMerger
    %This.StripLayoutAttributes = True;
    %This.WorkFile = "";
    %This.RecordTag = "";
+   %This.InsertBeforeTag = "";
+   %This.BlocksProcessed = 0;
+   %This.SectionsAdded = 0;
 end-method;
 
 
@@ -164,6 +193,96 @@ method AppendRowset
    End-For;
 
    Return &tops.Len;
+end-method;
+
+
+method InsertSections
+   /+ &doc as XmlDoc, +/
+   /+ &blockTag as String, +/
+   /+ &keyTag as String, +/
+   /+ &provider as DG_XMLMERGE:SectionProvider, +/
+   /+ &layoutName as String +/
+   /+ Returns XmlDoc +/
+   /* Blocks are the root's direct children named &blockTag (for transcripts
+      <Start><G_SSR_TSRSLT_HDR>...). Everything else is copied unchanged. */
+   Local XmlNode &oldRoot = &doc.DocumentElement;
+   Local XmlDoc &newDoc = CreateXmlDoc("");
+   Local XmlNode &newRoot = &newDoc.CreateDocumentElement(&oldRoot.NodeName);
+   Local array of XmlNode &kids = &oldRoot.ChildNodes;
+   Local XmlNode &copy;
+   Local number &i;
+
+   %This.BlocksProcessed = 0;
+   %This.SectionsAdded = 0;
+
+   For &i = 1 To &kids.Len
+      /* only elements are copied; indentation whitespace between them is
+         dropped (use Pretty = True on Save if you want it re-indented) */
+      If &kids [&i].NodeType = 1 Then
+         If &kids [&i].NodeName = &blockTag Then
+            %This.CopyBlock(&newRoot, &kids [&i], &keyTag, &provider, &layoutName);
+         Else
+            &copy = &newRoot.CopyNode(&kids [&i]);
+         End-If;
+      End-If;
+   End-For;
+
+   Return &newDoc;
+end-method;
+
+
+method CopyBlock
+   /+ &newParent as XmlNode, +/
+   /+ &oldBlock as XmlNode, +/
+   /+ &keyTag as String, +/
+   /+ &provider as DG_XMLMERGE:SectionProvider, +/
+   /+ &layoutName as String +/
+   Local XmlNode &newBlock = &newParent.AddElement(&oldBlock.NodeName);
+   Local array of XmlNode &kids = &oldBlock.ChildNodes;
+   Local Rowset &rs = &provider.GetRowset(%This.ChildText(&oldBlock, &keyTag), &oldBlock);
+   Local boolean &done = (&rs = Null);
+   Local boolean &here;
+   Local XmlNode &copy;
+   Local number &i;
+
+   %This.BlocksProcessed = %This.BlocksProcessed + 1;
+
+   For &i = 1 To &kids.Len
+      If &kids [&i].NodeType = 1 Then
+         If Not &done Then
+            If Len(%This.InsertBeforeTag) > 0 Then
+               &here = (&kids [&i].NodeName = %This.InsertBeforeTag);
+            Else
+               &here = %This.IsGroup(&kids [&i]);
+            End-If;
+            If &here Then
+               %This.SectionsAdded = %This.SectionsAdded + %This.AppendRowset(&newBlock, &rs, &layoutName);
+               &done = True;
+            End-If;
+         End-If;
+         &copy = &newBlock.CopyNode(&kids [&i]);
+      End-If;
+   End-For;
+
+   /* no insert point found: add at the end of the block */
+   If Not &done Then
+      %This.SectionsAdded = %This.SectionsAdded + %This.AppendRowset(&newBlock, &rs, &layoutName);
+   End-If;
+end-method;
+
+
+method IsGroup
+   /+ &node as XmlNode +/
+   /+ Returns Boolean +/
+   Local array of XmlNode &kids = &node.ChildNodes;
+   Local number &i;
+
+   For &i = 1 To &kids.Len
+      If &kids [&i].NodeType = 1 Then
+         Return True;
+      End-If;
+   End-For;
+   Return False;
 end-method;
 
 

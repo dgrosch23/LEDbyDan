@@ -1,0 +1,61 @@
+/* ===========================================================================
+ * Example: add <CGERData>/<CGERCourseInfo> to a BI Publisher transcript XML
+ *
+ * Before:                              After:
+ *   <Start>                              <Start>
+ *     <G_SSR_TSRSLT_HDR>                   <G_SSR_TSRSLT_HDR>
+ *       <REPORT_REQUEST_NBR>...              <REPORT_REQUEST_NBR>...
+ *       ...                                  ...
+ *       <SSR_DATE_MASK>...                   <SSR_DATE_MASK>...
+ *                                            <CGERData>              (1..n)
+ *                                              <EMPLID>...
+ *                                              <CGERCourseInfo>...   (1..n)
+ *                                            </CGERData>
+ *       <G_SSR_TSRSLT_SVW1>...               <G_SSR_TSRSLT_SVW1>...
+ *       <G_SSR_TSRSLT_TRM>...                <G_SSR_TSRSLT_TRM>...
+ *     </G_SSR_TSRSLT_HDR>                  </G_SSR_TSRSLT_HDR>
+ *     (one HDR per student/report)        ...
+ *   </Start>                             </Start>
+ *
+ * Run it after the delivered code has written and closed the transcript
+ * file, and before the BI Publisher report is generated from it.
+ *
+ * Z_CGER_TSCRPT_FL = your custom File Layout (Format = XML). Its two file
+ * records must be named CGERData and CGERCourseInfo, the tags you want in
+ * the output.                                                       <<<
+ * ========================================================================= */
+import DG_XMLMERGE:XmlFileMerger;
+import DG_XMLMERGE:Example:CgerSectionProvider;   /* <<< your copy */
+
+Local DG_XMLMERGE:XmlFileMerger &merge = create DG_XMLMERGE:XmlFileMerger();
+Local DG_XMLMERGE:Example:CgerSectionProvider &cger = create DG_XMLMERGE:Example:CgerSectionProvider();
+Local string &path;
+Local XmlDoc &doc;
+Local XmlDoc &merged;
+
+/* 1. your existing code that finds the file */
+&path = "/psoft/output/transcripts/TSCRPT.xml";   /* <<< */
+
+/* 2. read it */
+&merge.KeepBackup = True;   /* writes <path>.bak; turn off once you trust it */
+&doc = &merge.Load(&path);
+
+/* 3. the element in the layout output that is one top-level row */
+&merge.RecordTag = "CGERData";
+
+/* Insert point. Blank (the default) = in front of each student's first
+   child group, which is <G_SSR_TSRSLT_SVW1> in your sample. If some
+   students have no SVW1, the first group is <G_SSR_TSRSLT_TRM> instead,
+   so CGERData still lands right after the header fields. */
+&merge.InsertBeforeTag = "";
+
+/* 4. one CGER section set per <G_SSR_TSRSLT_HDR>, keyed by its EMPLID */
+&merged = &merge.InsertSections(&doc, "G_SSR_TSRSLT_HDR", "EMPLID", &cger, "Z_CGER_TSCRPT_FL");   /* <<< layout */
+
+/* 5. same location, same file name */
+&merge.Pretty = True;   /* re-indent; BI Publisher doesn't care either way */
+&merge.Save(&merged, &path);
+
+/* optional, in an App Engine:
+   MessageBox(0, "", 0, 0, "CGER merge: %1 transcripts, %2 CGERData sections", &merge.BlocksProcessed, &merge.SectionsAdded);
+*/
