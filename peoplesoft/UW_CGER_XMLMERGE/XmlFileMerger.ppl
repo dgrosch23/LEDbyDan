@@ -463,7 +463,9 @@ method EscapeDataCR
       &out.Push(&next);
    End-For;
 
-   Return &out.Join("", "", "");
+   /* an LF right after a data CR is part of the same value; escape it too
+      so CR+LF reads exactly as in the original (&#xD;&#xA;) */
+   Return Substitute(&out.Join("", "", ""), "&#xD;" | Char(10), "&#xD;&#xA;");
 end-method;
 
 
