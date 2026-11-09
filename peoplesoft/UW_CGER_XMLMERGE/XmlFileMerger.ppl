@@ -130,6 +130,7 @@ method AppendRowset
    /+ Returns Number +/
    Local File &f;
    Local string &frag;
+   Local string &wrapped;
    Local string &tag;
    Local XmlDoc &fragDoc;
    Local array of any &tops = CreateArrayAny();
@@ -168,7 +169,16 @@ method AppendRowset
    If Len(RTrim(LTrim(&frag))) = 0 Then
       Return 0;
    End-If;
-   &fragDoc = %This.ParseText("<DG_FRAGMENT>" | &frag | "</DG_FRAGMENT>", "File Layout " | &layoutName | " output");
+   /* wrapper goes on line 1 with no newline, so line numbers in a parse
+      error match the .bad file below */
+   &wrapped = "<DG_FRAGMENT>" | &frag | "</DG_FRAGMENT>";
+   try
+      &fragDoc = %This.ParseText(&wrapped, "File Layout " | &layoutName | " output");
+   catch Exception &ex
+      /* keep what we tried to parse so the bad line can be inspected */
+      %This.WriteText(%This.WorkFile | ".bad", &wrapped);
+      throw CreateException(0, 0, "%1 -- the text that failed is saved in %2 (line numbers match)", &ex.ToString(), %This.WorkFile | ".bad");
+   end-try;
 
    /* 3. find the top-level record elements (skipping any wrapper the
          layout itself adds) and copy them, children included */
@@ -385,16 +395,22 @@ end-method;
 method StripDeclaration
    /+ &text as String +/
    /+ Returns String +/
-   Local string &t = LTrim(&text);
+   /* Remove every <?xml ...?> declaration, not just a leading one: the
+      layout writer can emit one more than once in a single output file,
+      and a declaration anywhere but the very start is a parse error. */
+   Local string &t = &text;
+   Local number &start = Find("<?xml", &t);
    Local number &end;
 
-   If Substring(&t, 1, 5) = "<?xml" Then
-      &end = Find("?>", &t);
-      If &end > 0 Then
-         Return Substring(&t, &end + 2, Len(&t) - &end - 1);
+   While &start > 0
+      &end = Find("?>", &t, &start);
+      If &end = 0 Then
+         Break;
       End-If;
-   End-If;
-   Return &t;
+      &t = Substring(&t, 1, &start - 1) | Substring(&t, &end + 2, Len(&t) - &end - 1);
+      &start = Find("<?xml", &t, &start);
+   End-While;
+   Return LTrim(&t);
 end-method;
 
 
