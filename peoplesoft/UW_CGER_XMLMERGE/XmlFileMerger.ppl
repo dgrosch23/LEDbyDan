@@ -381,7 +381,7 @@ method ParseText
    Local boolean &ok;
    Local string &xml = &text;
 
-   /* ParseXmlString fails ("XML parser error", message 159,5) on text that
+   /* ParseXmlString gave "XML parser error" (message 159,5) on well-formed text that
       doesn't start with an XML declaration, so add one when it's missing.
       It goes on line 1 with no newline, so line numbers don't shift. */
    If Substring(LTrim(&xml), 1, 5) <> "<?xml" Then
