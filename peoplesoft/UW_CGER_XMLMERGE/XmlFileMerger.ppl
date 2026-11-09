@@ -1,0 +1,539 @@
+/* ===========================================================================
+ * UW_CGER_XMLMERGE:XmlFileMerger
+ *
+ * Opens an existing XML file (for example a BI Publisher transcript data
+ * file written by a delivered File Layout), appends extra sections built by
+ * a custom XML File Layout from a Rowset, and saves the result back to the
+ * same path under the same name.
+ *
+ *    Local UW_CGER_XMLMERGE:XmlFileMerger &m = create UW_CGER_XMLMERGE:XmlFileMerger();
+ *    Local XmlDoc &doc = &m.Load(&path);
+ *    &m.RecordTag = "CGERData";
+ *    Local XmlDoc &out = &m.InsertSections(&doc, "G_SSR_TSRSLT_HDR", "EMPLID",
+ *                                          &provider, "MY_XML_FL");
+ *    &m.Save(&out, &path);
+ *
+ * InsertSections copies the document into a new XmlDoc in order. For each
+ * block element (one per student), it asks your SectionProvider for a
+ * rowset and writes that rowset's XML at the insert point:
+ *    - before the child named InsertBeforeTag, if you set it, otherwise
+ *    - before the block's first child group (the first child element that
+ *      has child elements of its own, e.g. <G_SSR_TSRSLT_SVW1>), otherwise
+ *    - at the end of the block.
+ * Rebuilding avoids needing insert-before/replace APIs on XmlNode: it only
+ * uses AddElement and CopyNode.
+ *
+ * AppendRowset is the lower-level piece: it appends a rowset's XML as the
+ * last children of any node you pass.
+ *
+ * How AppendRowset works: the rowset is written with File.WriteRowset to a
+ * work file using your custom File Layout (its Format must be XML), the work
+ * file is read back and parsed, and every top-level record element is
+ * copied (XmlNode.CopyNode, children included) under the parent node you
+ * pass. The XML for the extra data therefore comes from your layout
+ * exactly, with the same tag names and the same field formatting the
+ * delivered layout uses.
+ *
+ * Nothing is written to the original file until Save, and Save re-parses
+ * the merged XML first. If anything fails, the original file is untouched.
+ * ========================================================================= */
+
+import UW_CGER_XMLMERGE:SectionProvider;
+
+class XmlFileMerger
+   method XmlFileMerger();
+
+   /* Character set for GetFile. Default "UTF8". */
+   property string Charset;
+   /* Save with GenFormattedXmlString (indented) instead of GenXmlString. */
+   property boolean Pretty;
+   /* Save writes a copy of the original to <path>.bak first. */
+   property boolean KeepBackup;
+   /* Scratch file for WriteRowset. Load sets it to <path>.dgtmp if blank. */
+   property string WorkFile;
+   /* Tag that marks one row in the layout output. Blank = the rowset's
+      DBRecordName. Set it if the File Record ID in your layout differs. */
+   property string RecordTag;
+   /* InsertSections: child of a block to insert in front of. Blank = the
+      block's first child group (an element with child elements). */
+   property string InsertBeforeTag;
+   /* Counters set by InsertSections. */
+   property number BlocksProcessed;
+   property number SectionsAdded;
+
+   method Load(&path As string) Returns XmlDoc;
+   method Save(&doc As XmlDoc, &path As string);
+   method AppendRowset(&parent As XmlNode, &rs As Rowset, &layoutName As string) Returns number;
+   method InsertSections(&doc As XmlDoc, &blockTag As string, &keyTag As string, &provider As UW_CGER_XMLMERGE:SectionProvider, &layoutName As string) Returns XmlDoc;
+   method ChildText(&node As XmlNode, &name As string) Returns string;
+   method ReadText(&path As string) Returns string;
+   method WriteText(&path As string, &text As string);
+
+private
+   method ParseText(&text As string, &what As string) Returns XmlDoc;
+   method StripDeclaration(&text As string) Returns string;
+   method EscapeDataCR(&xml As string) Returns string;
+   method IsBlank(&text As string) Returns boolean;
+   method CollectByName(&node As XmlNode, &name As string, &out As array of any);
+   method DeleteFile(&path As string);
+   method CopyBlock(&newParent As XmlNode, &oldBlock As XmlNode, &keyTag As string, &provider As UW_CGER_XMLMERGE:SectionProvider, &layoutName As string);
+   method IsGroup(&node As XmlNode) Returns boolean;
+end-class;
+
+
+method XmlFileMerger
+   %This.Charset = "UTF8";
+   %This.Pretty = False;
+   %This.KeepBackup = False;
+   %This.WorkFile = "";
+   %This.RecordTag = "";
+   %This.InsertBeforeTag = "";
+   %This.BlocksProcessed = 0;
+   %This.SectionsAdded = 0;
+end-method;
+
+
+method Load
+   /+ &path as String +/
+   /+ Returns XmlDoc +/
+   If Len(%This.WorkFile) = 0 Then
+      %This.WorkFile = &path | ".dgtmp";
+   End-If;
+   Return %This.ParseText(%This.ReadText(&path), &path);
+end-method;
+
+
+method Save
+   /+ &doc as XmlDoc, +/
+   /+ &path as String +/
+   Local string &xml;
+   Local XmlDoc &check;
+
+   If %This.Pretty Then
+      &xml = &doc.GenFormattedXmlString();
+   Else
+      &xml = &doc.GenXmlString();
+   End-If;
+
+   /* keep carriage returns in data values escaped, as in the original */
+   &xml = %This.EscapeDataCR(&xml);
+
+   /* make sure what we are about to write is well formed; if not, keep it
+      in <path>.bad for inspection and leave the original untouched */
+   try
+      &check = %This.ParseText(&xml, "merged document for " | &path);
+   catch Exception &ex
+      %This.WriteText(&path | ".bad", &xml);
+      throw CreateException(0, 0, "%1 -- the text that failed is saved in %2", &ex.ToString(), &path | ".bad");
+   end-try;
+
+   If %This.KeepBackup Then
+      %This.WriteText(&path | ".bak", %This.ReadText(&path));
+   End-If;
+   %This.WriteText(&path, &xml);
+end-method;
+
+
+method AppendRowset
+   /+ &parent as XmlNode, +/
+   /+ &rs as Rowset, +/
+   /+ &layoutName as String +/
+   /+ Returns Number +/
+   Local File &f;
+   Local string &frag;
+   Local string &wrapped;
+   Local string &tag;
+   Local XmlDoc &fragDoc;
+   Local array of any &tops = CreateArrayAny();
+   Local XmlNode &top;
+   Local number &i;
+
+   /* A rowset that Fill() found nothing for still holds one blank row, and
+      the layout would write it as an empty record. Callers should skip the
+      call when Fill() returns 0 (see the example). */
+   If &rs = Null Or
+         &rs.ActiveRowCount = 0 Then
+      Return 0;
+   End-If;
+
+   If Len(%This.WorkFile) = 0 Then
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - set WorkFile (or call Load) before AppendRowset");
+   End-If;
+
+   /* 1. let the custom File Layout render the rowset as XML */
+   &f = GetFile(%This.WorkFile, "W", %This.Charset, %FilePath_Absolute);
+   If &f = Null Or
+         Not &f.IsOpen Then
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - cannot open work file %1", %This.WorkFile);
+   End-If;
+   If Not &f.SetFileLayout(@("FileLayout." | &layoutName)) Then
+      &f.Close();
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - SetFileLayout failed for %1", &layoutName);
+   End-If;
+   &f.WriteRowset(&rs, True);
+   &f.Close();
+
+   /* 2. read it back. Layout output is a list of record elements, possibly
+         without a single root, so wrap it before parsing. */
+   &frag = %This.StripDeclaration(%This.ReadText(%This.WorkFile));
+   %This.DeleteFile(%This.WorkFile);
+   If Len(RTrim(LTrim(&frag))) = 0 Then
+      Return 0;
+   End-If;
+   /* declaration and wrapper go on line 1 with no newline, so the .bad file
+      below has the same line numbers as the layout output */
+   &wrapped = "<?xml version='1.0'?><DG_FRAGMENT>" | &frag | "</DG_FRAGMENT>";
+   try
+      &fragDoc = %This.ParseText(&wrapped, "File Layout " | &layoutName | " output");
+   catch Exception &ex
+      /* keep what we tried to parse so the bad line can be inspected */
+      %This.WriteText(%This.WorkFile | ".bad", &wrapped);
+      throw CreateException(0, 0, "%1 -- the text that failed is saved in %2 (line numbers match)", &ex.ToString(), %This.WorkFile | ".bad");
+   end-try;
+
+   /* 3. find the top-level record elements (skipping any wrapper the
+         layout itself adds) and copy them, children included */
+   &tag = %This.RecordTag;
+   If Len(&tag) = 0 Then
+      &tag = &rs.DBRecordName;
+   End-If;
+   %This.CollectByName(&fragDoc.DocumentElement, &tag, &tops);
+   If &tops.Len = 0 Then
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - no <%1> elements in File Layout %2 output. Set RecordTag to the layout's File Record ID.", &tag, &layoutName);
+   End-If;
+
+   For &i = 1 To &tops.Len
+      &top = &tops [&i];
+      &parent.CopyNode(&top);
+   End-For;
+
+   Return &tops.Len;
+end-method;
+
+
+method InsertSections
+   /+ &doc as XmlDoc, +/
+   /+ &blockTag as String, +/
+   /+ &keyTag as String, +/
+   /+ &provider as UW_CGER_XMLMERGE:SectionProvider, +/
+   /+ &layoutName as String +/
+   /+ Returns XmlDoc +/
+   /* Blocks are the root's direct children named &blockTag (for transcripts
+      <Start><G_SSR_TSRSLT_HDR>...). Everything else is copied unchanged. */
+   Local XmlNode &oldRoot = &doc.DocumentElement;
+   Local XmlDoc &newDoc = CreateXmlDoc("");
+   Local XmlNode &newRoot = &newDoc.CreateDocumentElement(&oldRoot.NodeName);
+   Local number &kidCount = &oldRoot.ChildNodeCount;
+   Local XmlNode &kid;
+   Local number &i;
+
+   %This.BlocksProcessed = 0;
+   %This.SectionsAdded = 0;
+
+   For &i = 1 To &kidCount
+      &kid = &oldRoot.GetChildNode(&i);
+      /* only elements are copied; indentation whitespace between them is
+         dropped (use Pretty = True on Save if you want it re-indented) */
+      If &kid.NodeType = 1 Then
+         If &kid.NodeName = &blockTag Then
+            %This.CopyBlock(&newRoot, &kid, &keyTag, &provider, &layoutName);
+         Else
+            &newRoot.CopyNode(&kid);
+         End-If;
+      End-If;
+   End-For;
+
+   Return &newDoc;
+end-method;
+
+
+method CopyBlock
+   /+ &newParent as XmlNode, +/
+   /+ &oldBlock as XmlNode, +/
+   /+ &keyTag as String, +/
+   /+ &provider as UW_CGER_XMLMERGE:SectionProvider, +/
+   /+ &layoutName as String +/
+   Local XmlNode &newBlock = &newParent.AddElement(&oldBlock.NodeName);
+   Local number &kidCount = &oldBlock.ChildNodeCount;
+   Local XmlNode &kid;
+   Local Rowset &rs = &provider.GetRowset(%This.ChildText(&oldBlock, &keyTag), &oldBlock);
+   Local boolean &done = (&rs = Null);
+   Local boolean &here;
+   Local number &i;
+
+   %This.BlocksProcessed = %This.BlocksProcessed + 1;
+
+   For &i = 1 To &kidCount
+      &kid = &oldBlock.GetChildNode(&i);
+      If &kid.NodeType = 1 Then
+         If Not &done Then
+            If Len(%This.InsertBeforeTag) > 0 Then
+               &here = (&kid.NodeName = %This.InsertBeforeTag);
+            Else
+               &here = %This.IsGroup(&kid);
+            End-If;
+            If &here Then
+               %This.SectionsAdded = %This.SectionsAdded + %This.AppendRowset(&newBlock, &rs, &layoutName);
+               &done = True;
+            End-If;
+         End-If;
+         &newBlock.CopyNode(&kid);
+      End-If;
+   End-For;
+
+   /* no insert point found: add at the end of the block */
+   If Not &done Then
+      %This.SectionsAdded = %This.SectionsAdded + %This.AppendRowset(&newBlock, &rs, &layoutName);
+   End-If;
+end-method;
+
+
+method IsGroup
+   /+ &node as XmlNode +/
+   /+ Returns Boolean +/
+   Local number &kidCount = &node.ChildNodeCount;
+   Local XmlNode &kid;
+   Local number &i;
+
+   For &i = 1 To &kidCount
+      &kid = &node.GetChildNode(&i);
+      If &kid.NodeType = 1 Then
+         Return True;
+      End-If;
+   End-For;
+   Return False;
+end-method;
+
+
+method ChildText
+   /+ &node as XmlNode, +/
+   /+ &name as String +/
+   /+ Returns String +/
+   /* text of the first direct child element called &name, "" if none */
+   Local number &kidCount = &node.ChildNodeCount;
+   Local XmlNode &kid;
+   Local number &innerCount;
+   Local XmlNode &inner;
+   Local string &text;
+   Local number &i;
+   Local number &j;
+
+   For &i = 1 To &kidCount
+      &kid = &node.GetChildNode(&i);
+      If &kid.NodeType = 1 And
+            &kid.NodeName = &name Then
+         &innerCount = &kid.ChildNodeCount;
+         &text = "";
+         For &j = 1 To &innerCount
+            &inner = &kid.GetChildNode(&j);
+            /* 3 = text, 4 = CDATA */
+            If &inner.NodeType = 3 Or
+                  &inner.NodeType = 4 Then
+               &text = &text | &inner.NodeValue;
+            End-If;
+         End-For;
+         /* some releases don't expose text as child nodes */
+         If Len(&text) = 0 Then
+            &text = &kid.NodeValue;
+         End-If;
+         Return RTrim(LTrim(&text));
+      End-If;
+   End-For;
+   Return "";
+end-method;
+
+
+method ReadText
+   /+ &path as String +/
+   /+ Returns String +/
+   Local File &f = GetFile(&path, "R", %This.Charset, %FilePath_Absolute);
+   Local array of string &lines = CreateArrayRept("", 0);
+   Local string &line;
+   Local string &text;
+
+   If &f = Null Or
+         Not &f.IsOpen Then
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - cannot open %1 for reading", &path);
+   End-If;
+   While &f.ReadLine(&line)
+      &lines.Push(&line);
+   End-While;
+   &f.Close();
+
+   &text = &lines.Join(Char(10), "", "");
+   /* drop a UTF-8 byte order mark if one came through */
+   If Len(&text) > 0 Then
+      If Code(Substring(&text, 1, 1)) = 65279 Then
+         &text = Substring(&text, 2, Len(&text) - 1);
+      End-If;
+   End-If;
+   Return &text;
+end-method;
+
+
+method WriteText
+   /+ &path as String, +/
+   /+ &text as String +/
+   Local File &f = GetFile(&path, "W", %This.Charset, %FilePath_Absolute);
+   If &f = Null Or
+         Not &f.IsOpen Then
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - cannot open %1 for writing", &path);
+   End-If;
+   &f.WriteString(&text);
+   &f.Close();
+end-method;
+
+
+method ParseText
+   /+ &text as String, +/
+   /+ &what as String +/
+   /+ Returns XmlDoc +/
+   Local XmlDoc &doc = CreateXmlDoc("");
+   Local boolean &ok;
+   Local string &xml = &text;
+
+   /* ParseXmlString gave "XML parser error" (message 159,5) on well-formed text that
+      doesn't start with an XML declaration, so add one when it's missing.
+      It goes on line 1 with no newline, so line numbers don't shift. */
+   If Substring(LTrim(&xml), 1, 5) <> "<?xml" Then
+      &xml = "<?xml version='1.0'?>" | &xml;
+   End-If;
+
+   try
+      &ok = &doc.ParseXmlString(&xml);
+   catch Exception &ex
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - XML parse error in %1: %2", &what, &ex.ToString());
+   end-try;
+   If Not &ok Then
+      throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - %1 is not well-formed XML", &what);
+   End-If;
+   Return &doc;
+end-method;
+
+
+method EscapeDataCR
+   /+ &xml as String +/
+   /+ Returns String +/
+   /* Write carriage returns inside data values as &#xD; (e.g. ADDRESSLONG
+      "410 S 3rd St &#xD;&#xA;River Falls"). Left raw, any XML reader turns
+      CR+LF into a plain LF, so the value would change.
+      CRs that are only formatting, e.g. the CR+LF GenXmlString puts after
+      the declaration on Windows, must stay raw: &#xD; outside an element is
+      invalid. A CR counts as data when the text around it, from the
+      previous ">" to the next "<", has something besides whitespace. */
+   Local array of string &parts = Split(&xml, Char(13));
+   Local array of string &out;
+   Local string &prev;
+   Local string &next;
+   Local string &tail;
+   Local string &head;
+   Local number &i;
+   Local number &k;
+
+   If &parts.Len < 2 Then
+      Return &xml;
+   End-If;
+
+   &out = CreateArrayRept("", 0);
+   &out.Push(&parts [1]);
+   For &i = 2 To &parts.Len
+      /* text before the CR, back to the previous ">" */
+      &prev = &parts [&i - 1];
+      &k = Len(&prev);
+      While &k > 0 And
+            Substring(&prev, &k, 1) <> ">"
+         &k = &k - 1;
+      End-While;
+      &tail = Substring(&prev, &k + 1, Len(&prev) - &k);
+
+      /* text after the CR, up to the next "<" */
+      &next = &parts [&i];
+      &k = Find("<", &next);
+      If &k > 0 Then
+         &head = Substring(&next, 1, &k - 1);
+      Else
+         &head = &next;
+      End-If;
+
+      If %This.IsBlank(&tail | &head) Then
+         &out.Push(Char(13));
+      Else
+         &out.Push("&#xD;");
+      End-If;
+      &out.Push(&next);
+   End-For;
+
+   /* an LF right after a data CR is part of the same value; escape it too
+      so CR+LF reads exactly as in the original (&#xD;&#xA;) */
+   Return Substitute(&out.Join("", "", ""), "&#xD;" | Char(10), "&#xD;&#xA;");
+end-method;
+
+
+method IsBlank
+   /+ &text as String +/
+   /+ Returns Boolean +/
+   Local string &ws = " " | Char(9) | Char(10) | Char(13);
+   Local number &i;
+
+   For &i = 1 To Len(&text)
+      If Find(Substring(&text, &i, 1), &ws) = 0 Then
+         Return False;
+      End-If;
+   End-For;
+   Return True;
+end-method;
+
+
+method StripDeclaration
+   /+ &text as String +/
+   /+ Returns String +/
+   /* Remove every <?xml ...?> declaration, not just a leading one: the
+      layout writer can emit one more than once in a single output file,
+      and a declaration anywhere but the very start is a parse error. */
+   Local string &t = &text;
+   Local number &start = Find("<?xml", &t);
+   Local number &end;
+
+   While &start > 0
+      &end = Find("?>", &t, &start);
+      If &end = 0 Then
+         Break;
+      End-If;
+      &t = Substring(&t, 1, &start - 1) | Substring(&t, &end + 2, Len(&t) - &end - 1);
+      &start = Find("<?xml", &t, &start);
+   End-While;
+   Return LTrim(&t);
+end-method;
+
+
+method CollectByName
+   /+ &node as XmlNode, +/
+   /+ &name as String, +/
+   /+ &out as Array of Any +/
+   /* shallowest elements called &name; does not descend into a match */
+   Local number &kidCount = &node.ChildNodeCount;
+   Local XmlNode &kid;
+   Local number &i;
+
+   For &i = 1 To &kidCount
+      &kid = &node.GetChildNode(&i);
+      If &kid.NodeType = 1 Then
+         If &kid.NodeName = &name Then
+            &out.Push(&kid);
+         Else
+            %This.CollectByName(&kid, &name, &out);
+         End-If;
+      End-If;
+   End-For;
+end-method;
+
+
+
+method DeleteFile
+   /+ &path as String +/
+   Local File &f = GetFile(&path, "R", %This.Charset, %FilePath_Absolute);
+   If &f <> Null And
+         &f.IsOpen Then
+      &f.Delete();
+   End-If;
+end-method;

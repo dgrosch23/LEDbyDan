@@ -1,0 +1,57 @@
+/* ===========================================================================
+ * UW_CGER_XMLMERGE:Example:CGERSectionProvider
+ *
+ * Supplies the <CGERData>/<CGERCourseInfo> sections for one transcript
+ * block (<G_SSR_TSRSLT_HDR>). Replace the names marked <<<
+ * with yours:
+ *
+ *    UW_CGER_HDR   record behind <CGERData>
+ *                  (EMPLID, EFFDT, UW_CGER_STUD_TYPE, REQ_TERM)
+ *    UW_CGER_CRS   record behind <CGERCourseInfo>
+ *                  (EMPLID, EFFDT, UW_CGER_CRS_AT_VAL, ...)
+ *
+ * The rowset must have the same shape as your custom File Layout: level 0 =
+ * the CGERData record, level 1 = the CGERCourseInfo record.
+ * ========================================================================= */
+import UW_CGER_XMLMERGE:SectionProvider;
+
+class CGERSectionProvider implements UW_CGER_XMLMERGE:SectionProvider
+   method CGERSectionProvider();
+   method GetRowset(&key As string, &block As XmlNode) Returns Rowset;
+end-class;
+
+
+method CGERSectionProvider
+end-method;
+
+
+method GetRowset
+   /+ &key as String, +/
+   /+ &block as XmlNode +/
+   /+ Returns Rowset +/
+   /* &key = this student's EMPLID */
+   Local Rowset &rs;
+   Local Rowset &crs;
+   Local Record &hdr;
+   Local number &r;
+
+   If Len(&key) = 0 Then
+      Return Null;
+   End-If;
+
+   &rs = CreateRowset(Record.UW_CGER_HDR, CreateRowset(Record.UW_CGER_CRS));   /* <<< */
+
+   /* level 0: one row per CGERData (EFFDT). Your SQL criteria go here. */
+   If &rs.Fill("WHERE EMPLID = :1 ORDER BY EFFDT", &key) = 0 Then   /* <<< */
+      Return Null;
+   End-If;
+
+   /* level 1: the course rows for each header row */
+   For &r = 1 To &rs.ActiveRowCount
+      &hdr = &rs(&r).GetRecord(Record.UW_CGER_HDR);   /* <<< */
+      &crs = &rs(&r).GetRowset(Scroll.UW_CGER_CRS);   /* <<< */
+      &crs.Fill("WHERE EMPLID = :1 AND EFFDT = %DateIn(:2)", &hdr.EMPLID.Value, &hdr.EFFDT.Value);   /* <<< */
+   End-For;
+
+   Return &rs;
+end-method;
