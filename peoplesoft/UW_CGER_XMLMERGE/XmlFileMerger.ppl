@@ -72,6 +72,8 @@ class XmlFileMerger
 private
    method ParseText(&text As string, &what As string) Returns XmlDoc;
    method StripDeclaration(&text As string) Returns string;
+   method EscapeDataCR(&xml As string) Returns string;
+   method IsBlank(&text As string) Returns boolean;
    method CollectByName(&node As XmlNode, &name As string, &out As array of any);
    method DeleteFile(&path As string);
    method CopyBlock(&newParent As XmlNode, &oldBlock As XmlNode, &keyTag As string, &provider As UW_CGER_XMLMERGE:SectionProvider, &layoutName As string);
@@ -113,15 +115,17 @@ method Save
       &xml = &doc.GenXmlString();
    End-If;
 
-   /* Keep carriage returns in data escaped, as the original file had them
-      (e.g. ADDRESSLONG "...St &#xD;&#xA;River Falls"). Written raw, a reader
-      turns CR+LF into a plain LF. ReadText joins lines with LF only, so every
-      CR here came from data, unless Pretty formatting added CR+LF line ends
-      (possible on a Windows server); leave Pretty off to be exact. */
-   &xml = Substitute(&xml, Char(13), "&#xD;");
+   /* keep carriage returns in data values escaped, as in the original */
+   &xml = %This.EscapeDataCR(&xml);
 
-   /* make sure what we are about to write is well formed */
-   &check = %This.ParseText(&xml, "merged document for " | &path);
+   /* make sure what we are about to write is well formed; if not, keep it
+      in <path>.bad for inspection and leave the original untouched */
+   try
+      &check = %This.ParseText(&xml, "merged document for " | &path);
+   catch Exception &ex
+      %This.WriteText(&path | ".bad", &xml);
+      throw CreateException(0, 0, "%1 -- the text that failed is saved in %2", &ex.ToString(), &path | ".bad");
+   end-try;
 
    If %This.KeepBackup Then
       %This.WriteText(&path | ".bak", %This.ReadText(&path));
@@ -404,6 +408,77 @@ method ParseText
       throw CreateException(0, 0, "UW_CGER_XMLMERGE:XmlFileMerger - %1 is not well-formed XML", &what);
    End-If;
    Return &doc;
+end-method;
+
+
+method EscapeDataCR
+   /+ &xml as String +/
+   /+ Returns String +/
+   /* Write carriage returns inside data values as &#xD; (e.g. ADDRESSLONG
+      "410 S 3rd St &#xD;&#xA;River Falls"). Left raw, any XML reader turns
+      CR+LF into a plain LF, so the value would change.
+      CRs that are only formatting, e.g. the CR+LF GenXmlString puts after
+      the declaration on Windows, must stay raw: &#xD; outside an element is
+      invalid. A CR counts as data when the text around it, from the
+      previous ">" to the next "<", has something besides whitespace. */
+   Local array of string &parts = Split(&xml, Char(13));
+   Local array of string &out;
+   Local string &prev;
+   Local string &next;
+   Local string &tail;
+   Local string &head;
+   Local number &i;
+   Local number &k;
+
+   If &parts.Len < 2 Then
+      Return &xml;
+   End-If;
+
+   &out = CreateArrayRept("", 0);
+   &out.Push(&parts [1]);
+   For &i = 2 To &parts.Len
+      /* text before the CR, back to the previous ">" */
+      &prev = &parts [&i - 1];
+      &k = Len(&prev);
+      While &k > 0 And
+            Substring(&prev, &k, 1) <> ">"
+         &k = &k - 1;
+      End-While;
+      &tail = Substring(&prev, &k + 1, Len(&prev) - &k);
+
+      /* text after the CR, up to the next "<" */
+      &next = &parts [&i];
+      &k = Find("<", &next);
+      If &k > 0 Then
+         &head = Substring(&next, 1, &k - 1);
+      Else
+         &head = &next;
+      End-If;
+
+      If %This.IsBlank(&tail | &head) Then
+         &out.Push(Char(13));
+      Else
+         &out.Push("&#xD;");
+      End-If;
+      &out.Push(&next);
+   End-For;
+
+   Return &out.Join("", "", "");
+end-method;
+
+
+method IsBlank
+   /+ &text as String +/
+   /+ Returns Boolean +/
+   Local string &ws = " " | Char(9) | Char(10) | Char(13);
+   Local number &i;
+
+   For &i = 1 To Len(&text)
+      If Find(Substring(&text, &i, 1), &ws) = 0 Then
+         Return False;
+      End-If;
+   End-For;
+   Return True;
 end-method;
 
 
