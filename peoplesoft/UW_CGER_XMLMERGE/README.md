@@ -69,6 +69,9 @@ them in that order.
   directory, because the work file and `.bak` go next to the original.
 * **BI Publisher:** to use the new tags in the RTF/XSL template, regenerate
   the data source's sample XML/schema from a merged file.
+* Carriage returns in data (e.g. `&#xD;&#xA;` in `ADDRESSLONG`) are written
+  back as `&#xD;`, so values are unchanged. A line feed may be written raw
+  instead of `&#xA;`, which XML treats as the same character.
 * Default charset is `UTF8`. Change `Charset` if your files use something else.
 
 ## Options
@@ -76,7 +79,7 @@ them in that order.
 | Property | Default | Meaning |
 |---|---|---|
 | `Charset` | `UTF8` | Charset for `GetFile` |
-| `Pretty` | False | Indent the saved XML |
+| `Pretty` | False | Re-indent the saved XML. Leave off to keep data whitespace and line breaks exact |
 | `KeepBackup` | False | Write `<path>.bak` before overwriting |
 | `WorkFile` | `<path>.dgtmp` | Scratch file for `WriteRowset` |
 | `RecordTag` | rowset `DBRecordName` | Element that marks one row in the layout output (`CGERData`) |

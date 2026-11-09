@@ -53,7 +53,9 @@ Local XmlDoc &merged;
 &merged = &merge.InsertSections(&doc, "G_SSR_TSRSLT_HDR", "EMPLID", &cger, "Z_CGER_TSCRPT_FL");   /* <<< layout */
 
 /* 5. same location, same file name */
-&merge.Pretty = True;   /* re-indent; BI Publisher doesn't care either way */
+&merge.Pretty = False;   /* keeps the original's indentation inside each
+                           block and its data whitespace exactly; BI
+                           Publisher doesn't care about indentation */
 &merge.Save(&merged, &path);
 
 /* optional, in an App Engine:

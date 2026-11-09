@@ -113,6 +113,13 @@ method Save
       &xml = &doc.GenXmlString();
    End-If;
 
+   /* Keep carriage returns in data escaped, as the original file had them
+      (e.g. ADDRESSLONG "...St &#xD;&#xA;River Falls"). Written raw, a reader
+      turns CR+LF into a plain LF. ReadText joins lines with LF only, so every
+      CR here came from data, unless Pretty formatting added CR+LF line ends
+      (possible on a Windows server); leave Pretty off to be exact. */
+   &xml = Substitute(&xml, Char(13), "&#xD;");
+
    /* make sure what we are about to write is well formed */
    &check = %This.ParseText(&xml, "merged document for " | &path);
 
